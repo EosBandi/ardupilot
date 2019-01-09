@@ -116,6 +116,11 @@ AP_GPS_UBLOX::_request_next_config(void)
             _next_message--;
         }
         break;
+    case STEP_ITFM:
+        if (!_send_message(CLASS_CFG, MSG_CFG_ITFM, nullptr, 0)) {
+           _next_message--;
+        }
+    break;    
     case STEP_POSLLH:
         if(!_request_message_rate(CLASS_NAV, MSG_POSLLH)) {
             _next_message--;
@@ -727,7 +732,47 @@ AP_GPS_UBLOX::_parse_gps(void)
             }
             return false;
 #endif
+        case MSG_CFG_ITFM:
+        {
+        Debug("Got itfm settings %u and %u\n",
+            (unsigned)_buffer.itfm.config1,
+            (unsigned)_buffer.itfm.config2);
+            //config1 bit31 - enable interference detector
+            //config1 bit 0-3 broadband jamming threshold
+            //config1 bit 4-8 cw jamming threshold
+            //conifg1 bit 30-9 0x16b156
+            //default value with disabled detector and 15dBm cw and 3dB bb threshold is 0x2d 62 ac f3
+            //config2 bit 14 - enable auxilary bands scan set to 1 
+            //config2 bit 13-12 - antenna type for ITFM
+            //config2 bit 11-0 0x31e
 
+            bool    itd_enabled  = ( _buffer.itfm.config1 & (0x80000000));
+            //uint8_t cw_threshold = ((_buffer.itfm.config1 & (0x000001f0)) >> 4);
+            //uint8_t bb_threshold = ( _buffer.itfm.config1 & (0x0000000f));
+            //uint8_t antenna_type = ((_buffer.itfm.config2 & (0x00003000)) >> 12);
+            //bool    aux_scan_enable = ( _buffer.itfm.config2 & (0x00004000));
+        
+            Debug("Jammer settings:en:%u, cw:%u, bb:%u\n",itd_enabled,cw_threshold,bb_threshold);
+            Debug("Antenna:%u aux:%u\n",antenna_type,aux_scan_enable);
+            if (gps._jamming_detect_enable && !itd_enabled ) {
+                if (gps._cw_threshold > 32) gps._cw_threshold = 32;
+                if (gps._bb_threshold > 15) gps._bb_threshold = 15;
+                _buffer.itfm.config1 = 0xad62ac00;                              //Enable and zero out thresholds
+                _buffer.itfm.config1 |= ((uint16_t)gps._cw_threshold) << 4;     //Set cw threshold
+                _buffer.itfm.config1 |= gps._bb_threshold;                      //Set bb threshold
+                _buffer.itfm.config2 = 0x31e;                                   //Zero out antenna and aux scan
+                _buffer.itfm.config2 |= ((uint16_t)gps._ant_type)<<12;          //Set antenna type
+                _buffer.itfm.config2 |= 0x00004000;                             //Enable auxiliary band scans
+                _send_message(CLASS_CFG, MSG_CFG_ITFM,
+                              &_buffer.itfm,
+                              sizeof(_buffer.itfm));
+                _unconfigured_messages |= CONFIG_ITFM;
+                _cfg_needs_save = true;
+            } else {
+                _unconfigured_messages &= ~CONFIG_ITFM;
+            }
+        }
+            return false;
         case MSG_CFG_SBAS:
             if (gps._sbas_mode != 2) {
 	        Debug("Got SBAS settings %u %u %u 0x%x 0x%x\n", 
@@ -787,7 +832,15 @@ AP_GPS_UBLOX::_parse_gps(void)
         switch(_msg_id) {
         case MSG_MON_HW:
             if (_payload_length == 60 || _payload_length == 68) {
-                log_mon_hw();
+                if (_payload_length == 60) {
+                    state.jam_status = (_buffer.mon_hw_60.flags & 0x0c)>>2;
+                    state.jam_index  = _buffer.mon_hw_60.jamInd;
+                } 
+                else {
+                    state.jam_status = (_buffer.mon_hw_68.flags & 0x0c)>>2;
+                    state.jam_index  = _buffer.mon_hw_68.jamInd;
+                }
+            log_mon_hw();
             }
             break;
         case MSG_MON_HW2:
@@ -875,6 +928,9 @@ AP_GPS_UBLOX::_parse_gps(void)
             next_fix = AP_GPS::NO_FIX;
             state.status = AP_GPS::NO_FIX;
         }
+         //Check spoofing status
+        state.spoof_status = (_buffer.status.flags2 & 0x18) >> 3;
+               
 #if UBLOX_FAKE_3DLOCK
         state.status = AP_GPS::GPS_OK_FIX_3D;
         next_fix = state.status;
@@ -1278,7 +1334,8 @@ static const char *reasons[] = {"navigation rate",
                                 "navigation settings",
                                 "GNSS settings",
                                 "SBAS settings",
-                                "PVT rate"};
+                                "PVT rate",
+                                "ITFM settings"};
 
 
 void

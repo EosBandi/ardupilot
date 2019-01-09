@@ -149,6 +149,12 @@ public:
         bool have_vertical_accuracy:1;      ///< does GPS give vertical position accuracy? Set to true only once available.
         uint32_t last_gps_time_ms;          ///< the system time we got the last GPS timestamp, milliseconds
 
+        // the following fields will be filled if GPS is capable of jamming and/or spoofing detection
+        uint8_t jam_status;                    ///< jamming status (0-unknown,1-ok, 2-warning, 3-critical)
+        uint8_t jam_index;                  ///< CW jamming level indicator 0-no, 255-very strong
+        uint8_t spoof_status;                  ///< spoofing status 0-unkown/inactive, 1-OK, 2-Spoofing indicated, 3-Severe spoofing)
+
+
         // all the following fields must only all be filled by RTK capable backend drivers
         uint32_t rtk_time_week_ms;         ///< GPS Time of Week of last baseline in milliseconds
         uint16_t rtk_week_number;          ///< GPS Week Number of last baseline
@@ -438,6 +444,12 @@ protected:
     AP_Int16 _delay_ms[GPS_MAX_RECEIVERS];
     AP_Int8 _blend_mask;
     AP_Float _blend_tc;
+
+    AP_Int8 _cw_threshold;
+    AP_Int8 _bb_threshold;
+    AP_Int8 _jamming_detect_enable;
+    AP_Int8 _spoofing_detect_enable;
+    AP_Int8 _ant_type;                // Antenna setting for jamming detector setting (0-unknown, 1-passive, 2-active)
 
     uint32_t _log_gps_bit = -1;
 

@@ -72,12 +72,13 @@
 #define CONFIG_GNSS          (1<<11)
 #define CONFIG_SBAS          (1<<12)
 #define CONFIG_RATE_PVT      (1<<13)
+#define CONFIG_ITFM          (1<<14)
 
 #define CONFIG_REQUIRED_INITIAL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_VELNED)
 
 #define CONFIG_ALL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_SOL | CONFIG_RATE_VELNED \
                     | CONFIG_RATE_DOP | CONFIG_RATE_MON_HW | CONFIG_RATE_MON_HW2 | CONFIG_RATE_RAW | CONFIG_VERSION \
-                    | CONFIG_NAV_SETTINGS | CONFIG_GNSS | CONFIG_SBAS)
+                    | CONFIG_NAV_SETTINGS | CONFIG_GNSS | CONFIG_SBAS | CONFIG_ITFM)
 
 //Configuration Sub-Sections
 #define SAVE_CFG_IO     (1<<0)
@@ -87,7 +88,8 @@
 #define SAVE_CFG_RXM    (1<<4)
 #define SAVE_CFG_RINV   (1<<9)
 #define SAVE_CFG_ANT    (1<<10)
-#define SAVE_CFG_ALL    (SAVE_CFG_IO|SAVE_CFG_MSG|SAVE_CFG_INF|SAVE_CFG_NAV|SAVE_CFG_RXM|SAVE_CFG_RINV|SAVE_CFG_ANT)
+#define SAVE_CFG_ITFM   (1<<11)
+#define SAVE_CFG_ALL    (SAVE_CFG_IO|SAVE_CFG_MSG|SAVE_CFG_INF|SAVE_CFG_NAV|SAVE_CFG_RXM|SAVE_CFG_RINV|SAVE_CFG_ANT|SAVE_CFG_ITFM)
 
 class AP_GPS_UBLOX : public AP_GPS_Backend
 {
@@ -192,6 +194,10 @@ private:
         uint8_t scanmode2;
         uint32_t scanmode1;
     };
+        struct PACKED ubx_cfg_itfm {
+        uint32_t config1;
+        uint32_t config2;
+    };
     struct PACKED ubx_nav_posllh {
         uint32_t time;                                  // GPS msToW
         int32_t longitude;
@@ -206,7 +212,7 @@ private:
         uint8_t fix_type;
         uint8_t fix_status;
         uint8_t differential_status;
-        uint8_t res;
+        uint8_t flags2;
         uint32_t time_to_first_fix;
         uint32_t uptime;                                // milliseconds
     };
@@ -412,6 +418,7 @@ private:
 #if UBLOX_GNSS_SETTINGS
         ubx_cfg_gnss gnss;
 #endif
+        ubx_cfg_itfm itfm;
         ubx_cfg_sbas sbas;
         ubx_nav_svinfo_header svinfo_header;
 #if UBLOX_RXM_RAW_LOGGING
@@ -444,6 +451,7 @@ private:
         MSG_CFG_PRT = 0x00,
         MSG_CFG_SBAS = 0x16,
         MSG_CFG_GNSS = 0x3E,
+        MSG_CFG_ITFM = 0x39,
         MSG_MON_HW = 0x09,
         MSG_MON_HW2 = 0x0B,
         MSG_MON_VER = 0x04,
@@ -497,6 +505,7 @@ private:
         STEP_DOP,
         STEP_MON_HW,
         STEP_MON_HW2,
+        STEP_ITFM,
         STEP_RAW,
         STEP_RAWX,
         STEP_VERSION,

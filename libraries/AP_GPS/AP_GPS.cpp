@@ -258,6 +258,46 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("BLEND_TC", 21, AP_GPS, _blend_tc, 10.0f),
 
+    // @Param: DET_JAM
+    // @DisplayName: Enables Jamming detection
+    // @Description: Enables ublox internal jamming detection.
+    // @Units: true/false
+    // @Range: 0 1
+    // @User: Advanced
+    AP_GROUPINFO("JAM_DET", 22, AP_GPS, _jamming_detect_enable, 1),
+
+    // @Param: DET_SPOF
+    // @DisplayName: Enables spoofing detection
+    // @Description: Enables spoofing detection algorith in ublox
+    // @Units: true/false
+    // @Range: 0 1
+    // @User: Advanced
+    AP_GROUPINFO("SPOOF_DET", 23, AP_GPS, _spoofing_detect_enable, 0),
+
+    // @Param: CW_THLD
+    // @DisplayName: CW jamming threshold
+    // @Description: CW jamming threshold
+    // @Units: dBm
+    // @Range: 0 15
+    // @User: Advanced
+    AP_GROUPINFO("JAM_CW_THR", 24, AP_GPS, _cw_threshold, 15),
+
+    // @Param: BB_THLD
+    // @DisplayName: BB jamming threshold
+    // @Description: BB jamming threshold
+    // @Units: dBm
+    // @Range: 0 15
+    // @User: Advanced
+    AP_GROUPINFO("JAM_BB_THR", 25, AP_GPS, _bb_threshold, 3),
+
+    // @Param: JAM_ANT
+    // @DisplayName: Antenna setting for jamming detector
+    // @Description: Antenna type setting for jamming detector 0-unknown, 1-passive, 2-active
+    // @Units: discrete values
+    // @Range: 0 2
+    // @User: Advanced
+    AP_GROUPINFO("JAM_ANT_T", 26, AP_GPS, _ant_type, 0),
+
     AP_GROUPEND
 };
 
