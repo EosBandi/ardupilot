@@ -564,6 +564,17 @@ private:
     uint8_t         _hardware_generation;
 
 
+    
+
+    uint8_t         _cno_samples;
+    uint8_t         _cno_average[7];                    //Average of the last sample intervall;
+
+    uint16_t        _cno_summ[7];                       //running summary of cno for gnssID's (adding up till max number of samples);
+    
+    //For one NAV_SAT message
+    uint8_t         _cno_numsat[7];                     //Number of used satellites in each gnssID
+    uint16_t        _cno_satsum[7];                     //total added value of cno in each gnssID
+
     // do we have new position information?
     bool            _new_position:1;
     // do we have new speed information?

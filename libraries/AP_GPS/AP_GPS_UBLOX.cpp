@@ -37,10 +37,9 @@
 
 extern const AP_HAL::HAL& hal;
 
- # define DebugTest(fmt, args ...)  do {hal.console->printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
 
 #if UBLOX_DEBUGGING
- # define Debug(fmt, args ...)  do {hal.console->printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
+ # define Debug(fmt, args ...)  do {::printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
 #else
  # define Debug(fmt, args ...)
 #endif
@@ -149,6 +148,7 @@ AP_GPS_UBLOX::_request_next_config(void)
         }
         break;
     case STEP_NAV_SAT:
+        ::printf("Sat config STEP\n");
        if(! _request_message_rate(CLASS_NAV, MSG_NAV_SAT)) {
             _next_message--;
         }
@@ -266,6 +266,7 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
             }
             break;
            case MSG_NAV_SAT:
+           ::printf("SAT rate : %u",rate);
             if(rate == RATE_SAT) {
                 _unconfigured_messages &= ~CONFIG_RATE_SAT;
             } else {
@@ -1115,9 +1116,50 @@ AP_GPS_UBLOX::_parse_gps(void)
         break;
 
     case MSG_NAV_SAT:
+        {
         //Sat info messages. Collect cno data
-        DebugTest("SAT Info: %i sats\n",_buffer.sat.numSvs);
+        ::printf("SAT Info: %i sats\n",_buffer.sat.numSvs);
+        uint8_t i = 0;
+        //Zero out numsat and satsum, they can be local but it is maybe quicker to keep them allocated
+        memset(_cno_numsat,0,sizeof(_cno_numsat));
+        memset(_cno_satsum,0,sizeof(_cno_satsum));
+        //Collect all SAT info
+        for (i=0; i < _buffer.sat.numSvs;i++)
+         {
+             ::printf("Sat Info : %u:%u - cnr:%u - used:%u\n", _buffer.sat.svinfo[i].gnssId, _buffer.sat.svinfo[i].svId,_buffer.sat.svinfo[i].cno,_buffer.sat.svinfo[i].flags & 0x08);
+
+             if (_buffer.sat.svinfo[i].flags & 0x08) {
+                 _cno_satsum[_buffer.sat.svinfo[i].gnssId] += _buffer.sat.svinfo[i].cno;        //Add cno
+                 _cno_numsat[_buffer.sat.svinfo[i].gnssId]++;                                  //increase number of active sats
+             }
+         }
+         //Add averages to the summary for sampling period
+         for (i=0;i<7;i++)
+         {
+            if (_cno_numsat[i]){
+            ::printf("Gnns:%uAverage: %u - num:%u\n",i,(_cno_satsum[i] / _cno_numsat[i]),_cno_numsat[i] );
+             _cno_summ[i] += (_cno_satsum[i] / _cno_numsat[i]);
+            }
+
+         }
+        _cno_samples++;
+
+        if (_cno_samples == 20) 
+        {
+            for (i=0;i<7;i++)
+            {
+                _cno_average[i] = _cno_summ[i] / 20;
+            }
+            _cno_samples = 0;
+            memset(_cno_summ,0,sizeof(_cno_summ));
+        }
+
+        for (i = 0;i<7;i++) ::printf("%u:%u ", i, _cno_average[i]);
+        ::printf("\n");
+
+        }   
         break;
+
     case MSG_NAV_SVINFO:
         {
         Debug("MSG_NAV_SVINFO\n");
