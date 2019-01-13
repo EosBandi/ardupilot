@@ -43,6 +43,7 @@
 #define UBLOX_MAX_RXM_RAW_SATS 22
 #define UBLOX_MAX_RXM_RAWX_SATS 32
 #define UBLOX_GNSS_SETTINGS 1
+#define UBLOX_MAX_VISIBLE_SATS 64               //It is an overkill, but still smaller than the 1K RAWX block, so no additional memory is used.
 
 #define UBLOX_MAX_GNSS_CONFIG_BLOCKS 7
 #define UBX_MSG_TYPES 2
@@ -55,8 +56,9 @@
 #define RATE_PVT 1
 #define RATE_VELNED 1
 #define RATE_DOP 1
-#define RATE_HW 5
-#define RATE_HW2 5
+#define RATE_HW 1
+#define RATE_HW2 1
+#define RATE_SAT 1
 
 #define CONFIG_RATE_NAV      (1<<0)
 #define CONFIG_RATE_POSLLH   (1<<1)
@@ -73,12 +75,13 @@
 #define CONFIG_SBAS          (1<<12)
 #define CONFIG_RATE_PVT      (1<<13)
 #define CONFIG_ITFM          (1<<14)
+#define CONFIG_RATE_SAT      (1<<15)
 
 #define CONFIG_REQUIRED_INITIAL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_VELNED)
 
 #define CONFIG_ALL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_SOL | CONFIG_RATE_VELNED \
                     | CONFIG_RATE_DOP | CONFIG_RATE_MON_HW | CONFIG_RATE_MON_HW2 | CONFIG_RATE_RAW | CONFIG_VERSION \
-                    | CONFIG_NAV_SETTINGS | CONFIG_GNSS | CONFIG_SBAS | CONFIG_ITFM)
+                    | CONFIG_NAV_SETTINGS | CONFIG_GNSS | CONFIG_SBAS | CONFIG_ITFM | CONFIG_RATE_SAT)
 
 //Configuration Sub-Sections
 #define SAVE_CFG_IO     (1<<0)
@@ -343,6 +346,25 @@ private:
         uint8_t globalFlags;
         uint16_t reserved;
     };
+
+    struct PACKED ubx_nav_sat {
+        int32_t iTOW;
+        uint8_t version;
+        uint8_t numSvs;
+        uint8_t res1;
+        uint8_t res2;
+        struct ubx_sat_sv {
+            uint8_t gnssId;             //GNS identifier
+            uint8_t svId;               //Signal identifier
+            uint8_t cno;                //Carrier to Noise ratio
+            int8_t  elev;               //Elevation +/-90
+            int16_t azim;               //Azimuth 0-360
+            int16_t prRes;              //Pseudorange residual
+            uint32_t flags;             //Flags bit3:svUsed bit0-2 qualityInd
+        } svinfo[UBLOX_MAX_VISIBLE_SATS];
+    };
+
+
 #if UBLOX_RXM_RAW_LOGGING
     struct PACKED ubx_rxm_raw {
         int32_t iTOW;
@@ -406,6 +428,7 @@ private:
         ubx_nav_solution solution;
         ubx_nav_pvt pvt;
         ubx_nav_velned velned;
+        ubx_nav_sat sat;
         ubx_cfg_msg_rate msg_rate;
         ubx_cfg_msg_rate_6 msg_rate_6;
         ubx_cfg_nav_settings nav_settings;
@@ -456,6 +479,7 @@ private:
         MSG_MON_HW2 = 0x0B,
         MSG_MON_VER = 0x04,
         MSG_NAV_SVINFO = 0x30,
+        MSG_NAV_SAT = 0x35,
         MSG_RXM_RAW = 0x10,
         MSG_RXM_RAWX = 0x15
     };
@@ -503,6 +527,7 @@ private:
         STEP_POLL_NAV, // poll NAV settings
         STEP_POLL_GNSS, // poll GNSS
         STEP_DOP,
+        STEP_NAV_SAT,
         STEP_MON_HW,
         STEP_MON_HW2,
         STEP_ITFM,

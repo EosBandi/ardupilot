@@ -37,6 +37,8 @@
 
 extern const AP_HAL::HAL& hal;
 
+ # define DebugTest(fmt, args ...)  do {hal.console->printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
+
 #if UBLOX_DEBUGGING
  # define Debug(fmt, args ...)  do {hal.console->printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
 #else
@@ -143,6 +145,11 @@ AP_GPS_UBLOX::_request_next_config(void)
         break;
     case STEP_DOP:
        if(! _request_message_rate(CLASS_NAV, MSG_DOP)) {
+            _next_message--;
+        }
+        break;
+    case STEP_NAV_SAT:
+       if(! _request_message_rate(CLASS_NAV, MSG_NAV_SAT)) {
             _next_message--;
         }
         break;
@@ -258,6 +265,17 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
                 _cfg_needs_save = true;
             }
             break;
+           case MSG_NAV_SAT:
+            if(rate == RATE_SAT) {
+                _unconfigured_messages &= ~CONFIG_RATE_SAT;
+            } else {
+                _configure_message_rate(msg_class, msg_id, RATE_SAT);
+                _unconfigured_messages |= CONFIG_RATE_SAT;
+                _cfg_needs_save = true;
+            }
+            break;
+           
+
         }
         break;
     case CLASS_MON:
@@ -1094,6 +1112,11 @@ AP_GPS_UBLOX::_parse_gps(void)
         state.speed_accuracy = 0;
 #endif
         _new_speed = true;
+        break;
+
+    case MSG_NAV_SAT:
+        //Sat info messages. Collect cno data
+        DebugTest("SAT Info: %i sats\n",_buffer.sat.numSvs);
         break;
     case MSG_NAV_SVINFO:
         {
