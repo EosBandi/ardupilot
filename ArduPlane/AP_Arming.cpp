@@ -198,6 +198,7 @@ bool AP_Arming_Plane::arm(const AP_Arming::Method method, const bool do_arming_c
     change_arm_state();
 
     gcs().send_text(MAV_SEVERITY_INFO, "Throttle armed");
+    gcs().send_text(MAV_SEVERITY_CRITICAL,"FW NOT Flight Certified, Don't use for flight!");
 
     return true;
 }
