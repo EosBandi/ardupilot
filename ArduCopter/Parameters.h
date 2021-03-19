@@ -485,8 +485,10 @@ public:
     // altitude at which nav control can start in takeoff
     AP_Float wp_navalt_min;
 
+#if BUTTON_ENABLED == ENABLED
     // button checking
     AP_Button button;
+#endif
 
 #if STATS_ENABLED == ENABLED
     // vehicle statistics
@@ -601,6 +603,22 @@ public:
 #if AC_OAPATHPLANNER_ENABLED == ENABLED
     // object avoidance path planning
     AP_OAPathPlanner oa;
+#endif
+
+#if MODE_SYSTEMID_ENABLED == ENABLED
+    // we need a pointer to the mode for the G2 table
+    void *mode_systemid_ptr;
+#endif
+
+    // vibration failsafe enable/disable
+    AP_Int8 fs_vibe_enabled;
+
+    // Failsafe options bitmask #36
+    AP_Int32 fs_options;
+
+#if MODE_AUTOROTATE_ENABLED == ENABLED
+    // Autonmous autorotation
+    AC_Autorotation arot;
 #endif
 };
 

@@ -159,6 +159,18 @@ Mode *Copter::mode_from_mode_num(const Mode::Number mode)
             break;
 #endif
 
+#if MODE_SYSTEMID_ENABLED == ENABLED
+        case Mode::Number::SYSTEMID:
+            ret = (Mode *)g2.mode_systemid_ptr;
+            break;
+#endif
+
+#if MODE_AUTOROTATE_ENABLED == ENABLED
+        case Mode::Number::AUTOROTATE:
+            ret = &mode_autorotate;
+            break;
+#endif
+
         default:
             break;
     }
@@ -171,7 +183,7 @@ Mode *Copter::mode_from_mode_num(const Mode::Number mode)
 // optional force parameter used to force the flight mode change (used only first time mode is set)
 // returns true if mode was successfully set
 // ACRO, STABILIZE, ALTHOLD, LAND, DRIFT and SPORT can always be set successfully but the return state of other flight modes should be checked and the caller should deal with failures appropriately
-bool Copter::set_mode(Mode::Number mode, mode_reason_t reason)
+bool Copter::set_mode(Mode::Number mode, ModeReason reason)
 {
 
     // return immediately if we are already in the desired mode
@@ -192,11 +204,29 @@ bool Copter::set_mode(Mode::Number mode, mode_reason_t reason)
 #if FRAME_CONFIG == HELI_FRAME
     // do not allow helis to enter a non-manual throttle mode if the
     // rotor runup is not complete
-    if (!ignore_checks && !new_flightmode->has_manual_throttle() && (motors->get_spool_state() == AP_Motors::SpoolState::SPOOLING_UP || motors->get_spool_state() == AP_Motors::SpoolState::SPOOLING_DOWN)) {
-        gcs().send_text(MAV_SEVERITY_WARNING,"Flight mode change failed");
-        AP::logger().Write_Error(LogErrorSubsystem::FLIGHT_MODE, LogErrorCode(mode));
-        return false;
+    if (!ignore_checks && 
+    !new_flightmode->has_manual_throttle() && 
+    (motors->get_spool_state() == AP_Motors::SpoolState::SPOOLING_UP || motors->get_spool_state() == AP_Motors::SpoolState::SPOOLING_DOWN)) {
+        #if MODE_AUTOROTATE_ENABLED == ENABLED
+            //if the mode being exited is the autorotation mode allow mode change despite rotor not being at
+            //full speed.  This will reduce altitude loss on bail-outs back to non-manual throttle modes
+            bool in_autorotation_check = (flightmode != &mode_autorotate || new_flightmode != &mode_autorotate);
+        #else
+            bool in_autorotation_check = false;
+        #endif
+
+        if (!in_autorotation_check) {
+            gcs().send_text(MAV_SEVERITY_WARNING,"Flight mode change failed");
+            AP::logger().Write_Error(LogErrorSubsystem::FLIGHT_MODE, LogErrorCode(mode));
+            return false;
+        }
     }
+
+    #if MODE_AUTOROTATE_ENABLED == ENABLED
+        // If changing to autorotate flight mode from a non-manual throttle mode, store the previous flight mode
+        // to exit back to it when interlock is re-engaged
+        prev_control_mode = control_mode;
+    #endif
 #endif
 
 #if FRAME_CONFIG != HELI_FRAME
@@ -267,6 +297,18 @@ bool Copter::set_mode(Mode::Number mode, mode_reason_t reason)
     return true;
 }
 
+bool Copter::set_mode(const uint8_t new_mode, const ModeReason reason)
+{
+    static_assert(sizeof(Mode::Number) == sizeof(new_mode), "The new mode can't be mapped to the vehicles mode number");
+#ifdef DISALLOW_GCS_MODE_CHANGE_DURING_RC_FAILSAFE
+    if (reason == ModeReason::GCS_COMMAND && copter.failsafe.radio) {
+        // don't allow mode changes while in radio failsafe
+        return false;
+    }
+#endif
+    return copter.set_mode(static_cast<Mode::Number>(new_mode), ModeReason::GCS_COMMAND);
+}
+
 // update_flight_mode - calls the appropriate attitude controllers based on flight mode
 // called at 100hz or more
 void Copter::update_flight_mode()
@@ -314,6 +356,12 @@ void Copter::exit_mode(Mode *&old_flightmode,
     }
 #endif
 
+#if MODE_FOLLOW_ENABLED == ENABLED
+    if (old_flightmode == &mode_follow) {
+        mode_follow.exit();
+    }
+#endif
+
 #if FRAME_CONFIG == HELI_FRAME
     // firmly reset the flybar passthrough to false when exiting acro mode.
     if (old_flightmode == &mode_acro) {
@@ -351,6 +399,12 @@ void Mode::update_navigation()
 // returns desired angle in centi-degrees
 void Mode::get_pilot_desired_lean_angles(float &roll_out, float &pitch_out, float angle_max, float angle_limit) const
 {
+    // throttle failsafe check
+    if (copter.failsafe.radio || !copter.ap.rc_receiver_present) {
+        roll_out = 0;
+        pitch_out = 0;
+        return;
+    }
     // fetch roll and pitch inputs
     roll_out = channel_roll->get_control_in();
     pitch_out = channel_pitch->get_control_in();
@@ -431,7 +485,7 @@ void Mode::make_safe_spool_down()
     case AP_Motors::SpoolState::SHUT_DOWN:
     case AP_Motors::SpoolState::GROUND_IDLE:
         // relax controllers during idle states
-        attitude_control->reset_rate_controller_I_terms();
+        attitude_control->reset_rate_controller_I_terms_smoothly();
         attitude_control->set_yaw_target_to_current_heading();
         break;
 
@@ -524,8 +578,8 @@ void Mode::land_run_horizontal_control()
         if ((g.throttle_behavior & THR_BEHAVE_HIGH_THROTTLE_CANCELS_LAND) != 0 && copter.rc_throttle_control_in_filter.get() > LAND_CANCEL_TRIGGER_THR){
             copter.Log_Write_Event(DATA_LAND_CANCELLED_BY_PILOT);
             // exit land if throttle is high
-            if (!set_mode(Mode::Number::LOITER, MODE_REASON_THROTTLE_LAND_ESCAPE)) {
-                set_mode(Mode::Number::ALT_HOLD, MODE_REASON_THROTTLE_LAND_ESCAPE);
+            if (!set_mode(Mode::Number::LOITER, ModeReason::THROTTLE_LAND_ESCAPE)) {
+                set_mode(Mode::Number::ALT_HOLD, ModeReason::THROTTLE_LAND_ESCAPE);
             }
         }
 
@@ -720,7 +774,7 @@ void Mode::update_simple_mode(void) {
     copter.update_simple_mode();
 }
 
-bool Mode::set_mode(Mode::Number mode, mode_reason_t reason)
+bool Mode::set_mode(Mode::Number mode, ModeReason reason)
 {
     return copter.set_mode(mode, reason);
 }
