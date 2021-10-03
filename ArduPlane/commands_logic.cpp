@@ -581,9 +581,10 @@ bool Plane::verify_nav_wp(const AP_Mission::Mission_Command& cmd)
     // depending on the pass by flag either go to waypoint in regular manner or
     // fly past it for set distance along the line of waypoints
     Location flex_next_WP_loc = next_WP_loc;
-
-    uint8_t cmd_passby = HIGHBYTE(cmd.p1); // distance in meters to pass beyond the wp
-    uint8_t cmd_acceptance_distance = LOWBYTE(cmd.p1); // radius in meters to accept reaching the wp
+    
+    //PROTAR:Set passby and acceptance distance to zero, since we use p1 for payload ignition.
+    uint8_t cmd_passby = 0 ; // HIGHBYTE(cmd.p1); // distance in meters to pass beyond the wp
+    uint8_t cmd_acceptance_distance = 0;// LOWBYTE(cmd.p1); // radius in meters to accept reaching the wp
 
     if (cmd_passby > 0) {
         float dist = prev_WP_loc.get_distance(flex_next_WP_loc);
@@ -933,6 +934,14 @@ bool Plane::verify_command_callback(const AP_Mission::Mission_Command& cmd)
         // send message to GCS
         if (cmd_complete) {
             gcs().send_mission_item_reached_message(cmd.index);
+
+            //PROTAR:If we reached the waypoint and we have setting in P1 (payload ignition) then execute
+            //PROTAR:P1 encoding the payloads to ignite in bit format 0-1024 (10 different payloads)
+            if (cmd.p1 > 0)
+            {
+                gcs().send_text(MAV_SEVERITY_WARNING,"Payload ignited : %i", cmd.p1);
+                gcs().send_named_float("PYL",cmd.p1);
+            }
         }
 
         return cmd_complete;
