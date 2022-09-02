@@ -937,7 +937,8 @@ bool Plane::verify_command_callback(const AP_Mission::Mission_Command& cmd)
 
             //PROTAR:If we reached the waypoint and we have setting in P1 (payload ignition) then execute
             //PROTAR:P1 encoding the payloads to ignite in bit format 0-1024 (10 different payloads)
-            if (cmd.p1 > 0)
+            //PROTAR: Check if it's a waypoint command, so takeof will not ignite payloads
+            if ((cmd.p1 > 0) && (cmd.id == 16))
             {
                 gcs().send_text(MAV_SEVERITY_WARNING,"Payload ignited : %i", cmd.p1);
                 gcs().send_named_float("PYL",cmd.p1);
