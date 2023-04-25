@@ -320,4 +320,16 @@ protected:
     AP_Int8     _rangefinder_use;
     bool        _rangefinder_healthy;
     float       _rangefinder_alt_cm;
+
+    AP_Float       _shift_x;       //Shift current wp origin and destination by x cm on X direction
+    AP_Float       _shift_y;       //shift current wp origin and destination by x cm on Y direction
+    
+
+    AP_Float       _last_shift_x;
+    AP_Float       _last_shift_y;
+
+    Vector3f       _destination_zeroed; // Save of the original destination
+    Vector3f       _origin_zeroed;      // Save of the original origin
+
+
 };

@@ -67,6 +67,23 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("RFND_USE",   10, AC_WPNav, _rangefinder_use, 1),
 
+    // @Param: SHIFT_X
+    // @DisplayName: Shift mission points to X direction (on NED)
+    // @Description: Alows dynamic shifting of route 
+    // @Units cm
+    // @Range 0 10000
+    // @User: Advanced
+    AP_GROUPINFO("SHIFT_X",   11, AC_WPNav, _shift_x, 0),
+
+    // @Param: SHIFT_Y
+    // @DisplayName: Shift mission points to Y direction (on NED)
+    // @Description: Alows dynamic shifting of route 
+    // @Units cm
+    // @Range 0 10000
+    // @User: Advanced
+    AP_GROUPINFO("SHIFT_Y",   12, AC_WPNav, _shift_y, 0),
+
+
     AP_GROUPEND
 };
 
@@ -228,6 +245,18 @@ bool AC_WPNav::set_wp_origin_and_destination(const Vector3f& origin, const Vecto
     // store origin and destination locations
     _origin = origin;
     _destination = destination;
+
+    _origin_zeroed = origin;
+    _destination_zeroed = destination;
+
+
+    //Add shift 
+    _origin.x = _origin.x + _shift_x;
+    _origin.y = _origin.y + _shift_y;
+
+    _destination.x = _destination.x + _shift_x;
+    _destination.y = _destination.y + _shift_y;
+
     _terrain_alt = terrain_alt;
     Vector3f pos_delta = _destination - _origin;
 
@@ -486,6 +515,25 @@ int32_t AC_WPNav::get_wp_bearing_to_destination() const
 bool AC_WPNav::update_wpnav()
 {
     bool ret = true;
+
+    //Perhaps it does not belong here, but let's check if we can get along with it.
+
+    
+
+    //Check if there are changes in the shift vectors
+    if ((abs(_last_shift_x - _shift_x) <  1) || (abs(_last_shift_y - _shift_x) < 1))
+    {
+        _destination.x = _destination_zeroed.x + _shift_x;
+        _destination.y = _destination_zeroed.y + _shift_y;
+
+        _origin.x = _origin_zeroed.x + _shift_x;
+        _origin.y = _origin_zeroed.y + _shift_y;
+
+        _last_shift_x = _shift_x;
+        _last_shift_y = _shift_y;
+
+    }
+
 
     // get dt from pos controller
     float dt = _pos_control.get_dt();
