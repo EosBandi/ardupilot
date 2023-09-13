@@ -219,6 +219,7 @@ public:
     void send_msp_compass(void);
     void send_msp_baro(void);
     void send_msp_airspeed(void);
+    void send_debug_msg(void);
 #endif
     
 #ifdef HAL_PERIPH_ENABLE_ADSB
