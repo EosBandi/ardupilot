@@ -33,6 +33,7 @@
 #include "AP_GPS_SBP2.h"
 #include "AP_GPS_SIRF.h"
 #include "AP_GPS_UBLOX.h"
+#include "AP_GPS_UBLOX_J.h"
 #include "AP_GPS_MAV.h"
 #include "AP_GPS_MSP.h"
 #include "AP_GPS_ExternalAHRS.h"
@@ -414,6 +415,47 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     AP_GROUPINFO("2_CAN_OVRIDE", 31, AP_GPS, _override_node_id[1], 0),
 #endif // GPS_MAX_RECEIVERS > 1
 #endif // HAL_ENABLE_DRONECAN_DRIVERS
+
+
+// @Param: DET_JAM
+    // @DisplayName: Enables Jamming detection
+    // @Description: Enables ublox internal jamming detection.
+    // @Units: true/false
+    // @Range: 0 1
+    // @User: Advanced
+    AP_GROUPINFO("JAM_DET", 32, AP_GPS, _jamming_detect_enable, 1),
+
+    // @Param: DET_SPOF
+    // @DisplayName: Enables spoofing detection
+    // @Description: Enables spoofing detection algorith in ublox
+    // @Units: true/false
+    // @Range: 0 1
+    // @User: Advanced
+    AP_GROUPINFO("SPOOF_DET", 33, AP_GPS, _spoofing_detect_enable, 0),
+
+    // @Param: CW_THLD
+    // @DisplayName: CW jamming threshold
+    // @Description: CW jamming threshold
+    // @Units: dBm
+    // @Range: 0 15
+    // @User: Advanced
+    AP_GROUPINFO("JAM_CW_THR", 34, AP_GPS, _cw_threshold, 15),
+
+    // @Param: BB_THLD
+    // @DisplayName: BB jamming threshold
+    // @Description: BB jamming threshold
+    // @Units: dBm
+    // @Range: 0 15
+    // @User: Advanced
+    AP_GROUPINFO("JAM_BB_THR", 35, AP_GPS, _bb_threshold, 3),
+
+    // @Param: JAM_ANT
+    // @DisplayName: Antenna setting for jamming detector
+    // @Description: Antenna type setting for jamming detector 0-unknown, 1-passive, 2-active
+    // @Units: discrete values
+    // @Range: 0 2
+    // @User: Advanced
+    AP_GROUPINFO("JAM_ANT_T", 36, AP_GPS, _ant_type, 0),
 
     AP_GROUPEND
 };
@@ -845,6 +887,21 @@ AP_GPS_Backend *AP_GPS::_detect_instance(uint8_t instance)
             return new AP_GPS_UBLOX(*this, state[instance], _port[instance], role);
         }
 #endif  // AP_GPS_UBLOX_ENABLED
+
+#if AP_GPS_UBLOX_J_ENABLED
+        if (_type[instance] == GPS_TYPE_UBLOX_J &&
+            ((!_auto_config && _baudrates[dstate->current_baud] >= 38400) ||
+             (_baudrates[dstate->current_baud] >= 115200 && option_set(DriverOptions::UBX_Use115200)) ||
+             _baudrates[dstate->current_baud] == 230400) &&
+            AP_GPS_UBLOX_J::_detect(dstate->ublox_detect_state, data)) {
+            return new AP_GPS_UBLOX_J(*this, state[instance], _port[instance], GPS_ROLE_NORMAL);
+        }
+#endif  // AP_GPS_UBLOX_J_ENABLED
+
+
+
+
+
 #if AP_GPS_SBP2_ENABLED
         if ((_type[instance] == GPS_TYPE_AUTO || _type[instance] == GPS_TYPE_SBP) &&
                  AP_GPS_SBP2::_detect(dstate->sbp2_detect_state, data)) {

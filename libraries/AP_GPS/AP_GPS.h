@@ -88,6 +88,7 @@ class AP_GPS
     friend class AP_GPS_UBLOX;
     friend class AP_GPS_Backend;
     friend class AP_GPS_DroneCAN;
+    friend class AP_GPS_UBLOX_J;
 
 public:
     AP_GPS();
@@ -131,6 +132,7 @@ public:
         GPS_TYPE_UAVCAN_RTK_ROVER = 23,
         GPS_TYPE_UNICORE_NMEA = 24,
         GPS_TYPE_UNICORE_MOVINGBASE_NMEA = 25,
+        GPS_TYPE_UBLOX_J = 99,
 #if HAL_SIM_GPS_ENABLED
         GPS_TYPE_SITL = 100,
 #endif
@@ -233,6 +235,13 @@ public:
         float relPosD;                     ///< Reported Vertical distance in meters
         float accHeading;                  ///< Reported Heading Accuracy in degrees
         uint32_t relposheading_ts;        ///< True if new data has been received since last time it was false
+
+        // the following fields will be filled if GPS is capable of jamming and/or spoofing detection
+        uint8_t jam_status;                    ///< jamming status (0-unknown,1-ok, 2-warning, 3-critical)
+        uint8_t jam_index;                  ///< CW jamming level indicator 0-no, 255-very strong
+        uint8_t spoof_status;                  ///< spoofing status 0-unkown/inactive, 1-OK, 2-Spoofing indicated, 3-Severe spoofing)
+
+
     };
 
     /// Startup initialisation.
@@ -615,6 +624,17 @@ protected:
 #if GPS_MOVING_BASELINE
     MovingBase mb_params[GPS_MAX_RECEIVERS];
 #endif // GPS_MOVING_BASELINE
+
+//Jamming and spoofing detection parameters
+    AP_Int8 _cw_threshold;
+    AP_Int8 _bb_threshold;
+    AP_Int8 _jamming_detect_enable;
+    AP_Int8 _spoofing_detect_enable;
+    AP_Int8 _ant_type;                // Antenna setting for jamming detector setting (0-unknown, 1-passive, 2-active)
+
+
+
+
 
     uint32_t _log_gps_bit = -1;
 

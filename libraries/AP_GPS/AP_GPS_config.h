@@ -58,3 +58,8 @@
 #ifndef AP_GPS_UBLOX_ENABLED
   #define AP_GPS_UBLOX_ENABLED 1
 #endif
+
+#ifndef AP_GPS_UBLOX_J_ENABLED
+  #define AP_GPS_UBLOX_J_ENABLED 1
+#endif
+
