@@ -74,7 +74,7 @@ void AP_Periph_FW::can_gps_update(void)
     }
     last_gps_update_ms = gps.last_message_time_ms();
     
-    send_debug_msg();
+    send_jamming_msg();
 
 
     {
@@ -294,32 +294,23 @@ void AP_Periph_FW::send_moving_baseline_msg()
 #endif // GPS_MOVING_BASELINE
 }
 
-void AP_Periph_FW::send_debug_msg() {
-    uavcan_protocol_debug_KeyValue message_data{};
+void AP_Periph_FW::send_jamming_msg() {
 
+    ardupilot_eosbandi_GpsJamming message_data{};
 
+    message_data.jamming_index = gps.get_jamming_index();
+    message_data.jamming_status = gps.get_jamming_status();
+    message_data.spoofing_status = gps.get_spoofing_status();
+    message_data.noise_level = gps.get_noise_level();
+    message_data.agc_level = gps.get_agc_level();
 
-    message_data.key.len = 8;
-    message_data.key.data[0] = 'E';
-    message_data.key.data[1] = 'O';
-    message_data.key.data[2] = 'S';
-    message_data.key.data[3] = 'B';
-    message_data.key.data[4] = 'a';
-    message_data.key.data[5] = 'n';
-    message_data.key.data[6] = 'd';
-    message_data.key.data[7] = 'i';
-    message_data.value = 1972;
-
-    uint8_t buffer[UAVCAN_PROTOCOL_DEBUG_KEYVALUE_MAX_SIZE] {};
-    const uint16_t total_size = uavcan_protocol_debug_KeyValue_encode(&message_data, buffer, !canfdout());
-        canard_broadcast(UAVCAN_PROTOCOL_DEBUG_KEYVALUE_SIGNATURE,
-                    UAVCAN_PROTOCOL_DEBUG_KEYVALUE_ID,
+    uint8_t buffer[ARDUPILOT_EOSBANDI_GPSJAMMING_MAX_SIZE] {};
+    const uint16_t total_size = ardupilot_eosbandi_GpsJamming_encode(&message_data, buffer, !canfdout());
+        canard_broadcast(ARDUPILOT_EOSBANDI_GPSJAMMING_SIGNATURE,
+                    ARDUPILOT_EOSBANDI_GPSJAMMING_ID,
                     CANARD_TRANSFER_PRIORITY_LOW,
                     &buffer[0],
                     total_size);
-
-
-
 }
 
 void AP_Periph_FW::send_relposheading_msg() {

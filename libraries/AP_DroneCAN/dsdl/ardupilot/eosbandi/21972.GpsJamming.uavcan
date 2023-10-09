@@ -1,0 +1,5 @@
+uint8 jamming_status
+uint8 spoofing_status
+uint8 jamming_index
+uint16 noise_level
+uint16 agc_level

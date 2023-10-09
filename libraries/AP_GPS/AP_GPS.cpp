@@ -79,6 +79,10 @@ const char AP_GPS::_initialisation_blob[] =
 #if AP_GPS_UBLOX_ENABLED
     UBLOX_SET_BINARY_230400
 #endif
+#if AP_GPS_UBLOX_J_ENABLED
+    UBLOX_SET_BINARY_230400
+#endif
+
 #if AP_GPS_SIRF_ENABLED
     SIRF_SET_BINARY
 #endif
@@ -437,7 +441,7 @@ const AP_Param::GroupInfo AP_GPS::var_info[] = {
     // @DisplayName: CW jamming threshold
     // @Description: CW jamming threshold
     // @Units: dBm
-    // @Range: 0 15
+    // @Range: 0 31
     // @User: Advanced
     AP_GROUPINFO("JAM_CW_THR", 34, AP_GPS, _cw_threshold, 15),
 
@@ -655,6 +659,15 @@ void AP_GPS::send_blob_start(uint8_t instance)
         return;
     }
 #endif // AP_GPS_UBLOX_ENABLED
+
+#if AP_GPS_UBLOX_J_ENABLED
+    if (_type[instance] == GPS_TYPE_UBLOX_J && option_set(DriverOptions::UBX_Use115200)) {
+        static const char blob[] = UBLOX_SET_BINARY_115200;
+        send_blob_start(instance, blob, sizeof(blob));
+        return;
+    }
+#endif // AP_GPS_UBLOX_ENABLED
+
 
 #if GPS_MOVING_BASELINE && AP_GPS_UBLOX_ENABLED
     if ((_type[instance] == GPS_TYPE_UBLOX_RTK_BASE ||

@@ -65,6 +65,8 @@ extern const AP_HAL::HAL& hal;
  # define Debug(fmt, args ...)
 #endif
 
+#define DebugA(fmt, args ...)  do {hal.console->printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
+
 #if UBLOX_MB_DEBUGGING
 #if defined(HAL_BUILD_AP_PERIPH)
  extern "C" {
@@ -467,7 +469,7 @@ AP_GPS_UBLOX_J::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
             config_msg_id = CONFIG_RATE_POSLLH;
             break;
         case MSG_STATUS:
-            desired_rate = havePvtMsg ? 0 : RATE_STATUS;
+            desired_rate = RATE_STATUS;
             config_msg_id = CONFIG_RATE_STATUS;
             break;
         case MSG_SOL:
@@ -1142,9 +1144,6 @@ AP_GPS_UBLOX_J::_parse_gps(void)
 #endif
         case MSG_CFG_ITFM:
         {
-        Debug("Got itfm settings %u and %u\n",
-            (unsigned)_buffer.itfm.config1,
-            (unsigned)_buffer.itfm.config2);
             //config1 bit31 - enable interference detector
             //config1 bit 0-3 broadband jamming threshold
             //config1 bit 4-8 cw jamming threshold
@@ -1154,31 +1153,38 @@ AP_GPS_UBLOX_J::_parse_gps(void)
             //config2 bit 13-12 - antenna type for ITFM
             //config2 bit 11-0 0x31e
 
-            bool    itd_enabled  = ( _buffer.itfm.config1 & (0x80000000));
-            //uint8_t cw_threshold = ((_buffer.itfm.config1 & (0x000001f0)) >> 4);
-            //uint8_t bb_threshold = ( _buffer.itfm.config1 & (0x0000000f));
-            //uint8_t antenna_type = ((_buffer.itfm.config2 & (0x00003000)) >> 12);
-            //bool    aux_scan_enable = ( _buffer.itfm.config2 & (0x00004000));
+            bool    itd_enabled  = ( _buffer.itfm.config1 & (0x80000000)) != 0;
+            uint8_t cw_threshold = ((_buffer.itfm.config1 & (0x000001f0)) >> 4);
+            uint8_t bb_threshold = ( _buffer.itfm.config1 & (0x0000000f));
+            uint8_t antenna_type = ((_buffer.itfm.config2 & (0x00003000)) >> 12);
+            bool    aux_scan_enable = ( _buffer.itfm.config2 & (0x00004000));
 
-            Debug("Jammer settings:en:%u, cw:%u, bb:%u\n",itd_enabled,cw_threshold,bb_threshold);
-            Debug("Antenna:%u aux:%u\n",antenna_type,aux_scan_enable);
-            if (gps._jamming_detect_enable && !itd_enabled ) {
-                if (gps._cw_threshold > 32) gps._cw_threshold.set(32);
-                if (gps._bb_threshold > 15) gps._bb_threshold.set(15);
-                _buffer.itfm.config1 = 0xad62ac00;                              //Enable and zero out thresholds
-                _buffer.itfm.config1 |= ((uint16_t)gps._cw_threshold) << 4;     //Set cw threshold
-                _buffer.itfm.config1 |= gps._bb_threshold;                      //Set bb threshold
-                _buffer.itfm.config2 = 0x31e;                                   //Zero out antenna and aux scan
-                _buffer.itfm.config2 |= ((uint16_t)gps._ant_type)<<12;          //Set antenna type
-                _buffer.itfm.config2 |= 0x00004000;                             //Enable auxiliary band scans
-                _send_message(CLASS_CFG, MSG_CFG_ITFM,
-                              &_buffer.itfm,
-                              sizeof(_buffer.itfm));
-                _unconfigured_messages |= CONFIG_ITFM;
-                _cfg_needs_save = true;
+            DebugA("Current Setting: en:%u, cw:%u, bb:%i, ant:%u, aux:%u\n",itd_enabled,cw_threshold,bb_threshold,antenna_type, aux_scan_enable);
+
+            //If it is not match, do a reconfigure
+            if ( itd_enabled != gps._jamming_detect_enable ||
+                 cw_threshold != gps._cw_threshold ||
+                 bb_threshold != gps._bb_threshold ||
+                 antenna_type != gps._ant_type)
+                 {
+
+                    if (gps._cw_threshold > 32) gps._cw_threshold.set(32);
+                    if (gps._bb_threshold > 15) gps._bb_threshold.set(15);
+                    _buffer.itfm.config1 = 0xad62ac00;                              //Enable and zero out thresholds
+                    _buffer.itfm.config1 |= ((uint16_t)gps._cw_threshold) << 4;     //Set cw threshold
+                    _buffer.itfm.config1 |= gps._bb_threshold;                      //Set bb threshold
+                    _buffer.itfm.config2 = 0x31e;                                   //Zero out antenna and aux scan
+                    _buffer.itfm.config2 |= ((uint16_t)gps._ant_type)<<12;          //Set antenna type
+                    _buffer.itfm.config2 |= 0x00004000;                             //Enable auxiliary band scans
+
+                    DebugA("Updated Settings: en:%u, cw:%u, bb:%i, ant:%u, aux:%u\n",itd_enabled,cw_threshold,bb_threshold,antenna_type, aux_scan_enable);
+                    _send_message(CLASS_CFG, MSG_CFG_ITFM, &_buffer.itfm,sizeof(_buffer.itfm));
+                    _unconfigured_messages |= CONFIG_ITFM;
+                    _cfg_needs_save = true;
             } else {
                 _unconfigured_messages &= ~CONFIG_ITFM;
             }
+
         }
             return false;
 
@@ -1349,13 +1355,21 @@ AP_GPS_UBLOX_J::_parse_gps(void)
                 if (_payload_length == 60) {
                     state.jam_status = (_buffer.mon_hw_60.flags & 0x0c)>>2;
                     state.jam_index  = _buffer.mon_hw_60.jamInd;
+                    state.agc_level = _buffer.mon_hw_60.agcCnt;
+                    state.noise_level = _buffer.mon_hw_60.noisePerMS;
                 } 
                 else {
                     state.jam_status = (_buffer.mon_hw_68.flags & 0x0c)>>2;
                     state.jam_index  = _buffer.mon_hw_68.jamInd;
+                    state.agc_level = _buffer.mon_hw_68.agcCnt;
+                    state.noise_level = _buffer.mon_hw_68.noisePerMS;
                 }
             log_mon_hw();
             }
+            break;
+        case MSG_MON_HW2:
+            // Don't process this yet, however this can be usefull for further jam/spoof checks
+            log_mon_hw2();
             break;
         case MSG_MON_VER:
             _have_version = true;
@@ -1456,8 +1470,9 @@ AP_GPS_UBLOX_J::_parse_gps(void)
               _buffer.status.fix_status,
               _buffer.status.fix_type);
         _check_new_itow(_buffer.status.itow);
+        state.spoof_status = (_buffer.status.flags2 & 0x18) >> 3;
         if (havePvtMsg) {
-            _unconfigured_messages |= CONFIG_RATE_STATUS;
+            //_unconfigured_messages |= CONFIG_RATE_STATUS; Don't supress STATUS messages, we need them for spoofing detection flag
             break;
         }
         if (_buffer.status.fix_status & NAV_STATUS_FIX_VALID) {
@@ -1476,9 +1491,6 @@ AP_GPS_UBLOX_J::_parse_gps(void)
             next_fix = AP_GPS::NO_FIX;
             state.status = AP_GPS::NO_FIX;
         }
-        //Check spoofing status
-        state.spoof_status = (_buffer.status.flags2 & 0x18) >> 3;
-
 
 #if UBLOX_FAKE_3DLOCK
         state.status = AP_GPS::GPS_OK_FIX_3D;
@@ -1713,48 +1725,92 @@ AP_GPS_UBLOX_J::_parse_gps(void)
     case MSG_NAV_SAT:
         {
         //Sat info messages. Collect cno data
-        Debug("SAT Info: %i sats\n",_buffer.sat.numSvs);
+        ::printf("SAT Info: %i sats\n",_buffer.sat.numSvs);
         uint8_t i = 0;
         //Zero out numsat and satsum, they can be local but it is maybe quicker to keep them allocated
         memset(_cno_numsat,0,sizeof(_cno_numsat));
         memset(_cno_satsum,0,sizeof(_cno_satsum));
-        //Collect all SAT info
-        for (i=0; i < _buffer.sat.numSvs;i++)
-         {
-             ::printf("Sat Info : %u:%u - cnr:%u - used:%u\n", _buffer.sat.svinfo[i].gnssId, _buffer.sat.svinfo[i].svId,_buffer.sat.svinfo[i].cno,_buffer.sat.svinfo[i].flags & 0x08);
+        memset(_cno_max,0,sizeof(_cno_max));
+        memset(_cno_min,0,sizeof(_cno_min));
+        
 
-             if (_buffer.sat.svinfo[i].flags & 0x08) {
-                 _cno_satsum[_buffer.sat.svinfo[i].gnssId] += _buffer.sat.svinfo[i].cno;        //Add cno
-                 _cno_numsat[_buffer.sat.svinfo[i].gnssId]++;                                  //increase number of active sats
-             }
-         }
-         //Add averages to the summary for sampling period
-         for (i=0;i<7;i++)
-         {
-            if (_cno_numsat[i]){
-            ::printf("Gnns:%uAverage: %u - num:%u\n",i,(_cno_satsum[i] / _cno_numsat[i]),_cno_numsat[i] );
-             _cno_summ[i] += (_cno_satsum[i] / _cno_numsat[i]);
-            }
-
-         }
-        _cno_samples++;
-
-        if (_cno_samples == 20) 
+        //capping sat number at 64 die buffer size limitation
+        if (_buffer.sat.numSvs > 64) 
         {
-            for (i=0;i<7;i++)
-            {
-                _cno_average[i] = _cno_summ[i] / 20;
-            }
-            _cno_samples = 0;
-            memset(_cno_summ,0,sizeof(_cno_summ));
+            _buffer.sat.numSvs = 64;
+            ::printf("Capping sat number to 64\n");
         }
 
-        for (i = 0;i<7;i++) ::printf("%u:%u ", i, _cno_average[i]);
+        // Collect all SAT info
+        for (i = 0; i < _buffer.sat.numSvs; i++)
+        {
+
+            // Ignore satelites with zero cno
+            if (_buffer.sat.svinfo[i].cno > 0)
+            {
+                ::printf("Sat Info : %u:%u - cnr:%u - Quality:%u InUse:%u Health:%u\n", _buffer.sat.svinfo[i].gnssId, _buffer.sat.svinfo[i].svId,
+                    _buffer.sat.svinfo[i].cno, _buffer.sat.svinfo[i].flags & 0x07, (_buffer.sat.svinfo[i].flags & 0x08) >> 3, (_buffer.sat.svinfo[i].flags & 0x20) >> 4);
+
+                if (_buffer.sat.svinfo[i].flags & 0x08)  //calculate only sats that are in use
+                {
+                    _cno_satsum[_buffer.sat.svinfo[i].gnssId] += _buffer.sat.svinfo[i].cno; // Add cno
+                    _cno_numsat[_buffer.sat.svinfo[i].gnssId]++;                            // increase number of active sats
+
+                    // Get maximum and minimum 
+                    if (_cno_max[_buffer.sat.svinfo[i].gnssId] < _buffer.sat.svinfo[i].cno)
+                    {
+                        _cno_max[_buffer.sat.svinfo[i].gnssId] = _buffer.sat.svinfo[i].cno;
+                    }
+
+                    if (_cno_min[_buffer.sat.svinfo[i].gnssId] != 0)
+                    {
+                        if (_cno_min[_buffer.sat.svinfo[i].gnssId] > _buffer.sat.svinfo[i].cno)
+                        {
+                            _cno_min[_buffer.sat.svinfo[i].gnssId] = _buffer.sat.svinfo[i].cno;
+                        }
+                    }
+                    else
+                    {
+                        _cno_min[_buffer.sat.svinfo[i].gnssId] = _buffer.sat.svinfo[i].cno;
+                    }
+                }
+            }
+        }
+        // Add averages to the summary for sampling period
+        for (i = 0; i < 7; i++)
+        {
+            if (_cno_numsat[i])
+            {
+                //::printf("Gnns:%u Average: %u - satnum:%u\n",i,(_cno_satsum[i] / _cno_numsat[i]),_cno_numsat[i] );
+                _cno_summ[i] += (_cno_satsum[i] / _cno_numsat[i]);
+                if (_cno_numsat[i] >=3 ) //Prevent divide by zero
+                {
+                    _cno_summ_corr[i] += ((_cno_satsum[i] - _cno_max[i] - _cno_min[i]) / (_cno_numsat[i] - 2));
+                }
+            }
+        }
+        _cno_samples++;
+
+        if (_cno_samples == 20)
+        {
+            for (i = 0; i < 7; i++)
+            {
+                _cno_average[i] = _cno_summ[i] / 20;
+                _cno_corr_average[i] = _cno_summ_corr[i]/20;
+            }
+            _cno_samples = 0;
+            memset(_cno_summ, 0, sizeof(_cno_summ));
+            memset(_cno_summ_corr, 0, sizeof(_cno_summ_corr));
+
+        }
+        for (i = 0; i < 7; i++)
+            ::printf("Gnss %u: Avrg%u Med: %u Min:%u Max %u\n", i, _cno_average[i], _cno_corr_average[i], _cno_min[i], _cno_max[i]);
         ::printf("\n");
 
-        }   
+        ::printf("JamStatus: %u Index: %u SpoofSate: %u\n", state.jam_status, state.jam_index, state.spoof_status);
+        }
         break;
-    case MSG_NAV_SVINFO:
+        case MSG_NAV_SVINFO:
         {
         Debug("MSG_NAV_SVINFO\n");
         static const uint8_t HardwareGenerationMask = 0x07;

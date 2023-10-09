@@ -240,6 +240,8 @@ public:
         uint8_t jam_status;                    ///< jamming status (0-unknown,1-ok, 2-warning, 3-critical)
         uint8_t jam_index;                  ///< CW jamming level indicator 0-no, 255-very strong
         uint8_t spoof_status;                  ///< spoofing status 0-unkown/inactive, 1-OK, 2-Spoofing indicated, 3-Severe spoofing)
+        uint16_t noise_level;
+        uint16_t agc_level;
 
 
     };
@@ -277,6 +279,43 @@ public:
     uint8_t primary_sensor(void) const {
         return primary_instance;
     }
+
+    //Jamming status accessors
+    uint8_t get_jamming_status(uint8_t instance) const {
+        return(state[instance].jam_status);
+    }
+    uint8_t get_jamming_status(void) const {
+        return get_jamming_status(primary_instance);
+    }
+
+    uint8_t get_jamming_index(uint8_t instance) const {
+        return(state[instance].jam_index);
+    }
+    uint8_t get_jamming_index(void) const {
+        return get_jamming_index(primary_instance);
+    }
+
+    uint8_t get_spoofing_status(uint8_t instance) const {
+        return(state[instance].spoof_status);
+    }
+    uint8_t get_spoofing_status(void) const {
+        return get_spoofing_status(primary_instance);
+    }
+
+    uint16_t get_noise_level(uint8_t instance) const {
+        return(state[instance].noise_level);
+    }
+    uint16_t get_noise_level(void) const {
+        return get_noise_level(primary_instance);
+    }
+
+    uint16_t get_agc_level(uint8_t instance) const {
+        return(state[instance].agc_level);
+    }
+    uint16_t get_agc_level(void) const {
+        return get_agc_level(primary_instance);
+    }
+
 
     /// Query GPS status
     GPS_Status status(uint8_t instance) const {
@@ -626,15 +665,11 @@ protected:
 #endif // GPS_MOVING_BASELINE
 
 //Jamming and spoofing detection parameters
-    AP_Int8 _cw_threshold;
-    AP_Int8 _bb_threshold;
-    AP_Int8 _jamming_detect_enable;
-    AP_Int8 _spoofing_detect_enable;
-    AP_Int8 _ant_type;                // Antenna setting for jamming detector setting (0-unknown, 1-passive, 2-active)
-
-
-
-
+    AP_Int8 _cw_threshold;              //CW detection threshold in dB 0-31
+    AP_Int8 _bb_threshold;              //BB detection threshold in dB 0-15
+    AP_Int8 _jamming_detect_enable;     //Enabling Jamming detection
+    AP_Int8 _spoofing_detect_enable;    //Enabling Spoofing detection
+    AP_Int8 _ant_type;                  // Antenna setting for jamming detector setting (0-unknown, 1-passive, 2-active)
 
     uint32_t _log_gps_bit = -1;
 

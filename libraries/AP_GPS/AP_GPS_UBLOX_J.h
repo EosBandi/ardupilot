@@ -811,12 +811,16 @@ private:
 
     uint8_t         _cno_samples;
     uint8_t         _cno_average[7];                    //Average of the last sample intervall;
+    uint8_t         _cno_corr_average[7];
 
     uint16_t        _cno_summ[7];                       //running summary of cno for gnssID's (adding up till max number of samples);
+    uint16_t        _cno_summ_corr[7];                       //running summary of cno for gnssID's (adding up till max number of samples);
 
     //For one NAV_SAT message
     uint8_t         _cno_numsat[7];                     //Number of used satellites in each gnssID
     uint16_t        _cno_satsum[7];                     //total added value of cno in each gnssID
+    uint8_t         _cno_max[7];
+    uint8_t         _cno_min[7];
 
 
 
