@@ -353,6 +353,14 @@ void AP_Vehicle::setup()
     tramp.init();
 #endif
 
+///////////////////////////////////
+GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "RTC Init");
+AP::rtc().init();
+
+
+
+
+
 #if AP_PARAM_KEY_DUMP
     AP_Param::show_all(hal.console, true);
 #endif
@@ -387,6 +395,9 @@ void AP_Vehicle::setup()
 #if AP_FENCE_ENABLED
     fence.init();
 #endif
+
+    
+
 
     custom_rotations.init();
 

@@ -9,6 +9,9 @@
 #include <GCS_MAVLink/GCS.h>
 #include <AP_Common/time.h>
 
+#include "AP_RTC_Backend.h"
+#include "AP_RTC_DS3231.h"
+
 extern const AP_HAL::HAL& hal;
 
 AP_RTC::AP_RTC()
@@ -21,7 +24,6 @@ AP_RTC::AP_RTC()
     }
     _singleton = this;
 }
-
 
 // table of user settable parameters
 const AP_Param::GroupInfo AP_RTC::var_info[] = {
@@ -39,9 +41,50 @@ const AP_Param::GroupInfo AP_RTC::var_info[] = {
     // @Range: -720 +840
     // @User: Advanced
     AP_GROUPINFO("_TZ_MIN",  2, AP_RTC, tz_min, 0),
+
+    // @Param: _HW_TYPE
+    // @DisplayName: external RTC HW type
+    // @Description: Sets the HW type of the External RTC Hardware
+    // @Range: 0:none, 1:DS3231, 2:DS1307, 3:PCF8563
+    // @User: Advanced
+    AP_GROUPINFO("_HW_TYPE",  3, AP_RTC, hw_type, 0),
     
+    // @Param: BUS
+    // @DisplayName: RTC HW I2c Bus 
+    // @Description: Bus number of the I2C bus where the RTC HW is connected. May not correspond to board's I2C bus number labels. Retry another bus and reboot if airspeed sensor fails to initialize.
+    // @Values: 0:Bus0,1:Bus1,2:Bus2
+    // @RebootRequired: True
+    // @User: Advanced
+    AP_GROUPINFO("_HW_BUS", 4, AP_RTC, bus, 1),
+
     AP_GROUPEND
 };
+
+bool AP_RTC::init(void)
+{
+
+    // check for external hw to init
+    switch (hw_type) {
+            case HW_RTC_NONE:
+                return true;
+            case HW_RTC_DS3231:
+                _rtc_hw_driver = new AP_RTC_DS3231(*this);
+                break;
+            //..
+            default:
+                return false;
+    }
+
+    if (!_rtc_hw_driver->init())
+    {
+        GCS_SEND_TEXT(MAV_SEVERITY_ERROR, "HW RTC Failed to init");
+        return false;
+    }
+
+    return true;
+
+}
+
 
 void AP_RTC::set_utc_usec(uint64_t time_utc_usec, source_type type)
 {

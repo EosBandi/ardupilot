@@ -8,16 +8,24 @@
 
 #include <stdint.h>
 
+class AP_RTC_Backend;
 class AP_RTC {
+
+
+    friend class AP_RTC_Backend;
+    friend class AP_RTC_DS3231;
 
 public:
 
     AP_RTC();
+    bool init(void);
 
     static const struct AP_Param::GroupInfo var_info[];
 
     AP_Int8 allowed_types;
     AP_Int16 tz_min;
+    AP_Int8 hw_type;
+    AP_Int8 bus;
 
     // ordering is important in source_type; lower-numbered is
     // considered a better time source.  These values are documented
@@ -28,6 +36,14 @@ public:
         SOURCE_HW = 2,
         SOURCE_NONE,
     };
+
+    enum hw_type : uint8_t {
+        HW_RTC_NONE = 0,
+        HW_RTC_DS3231 = 1,
+        HW_RTC_DS1307 = 2,
+        HW_RTC_PCF8563 = 3,
+    };
+
 
     /*
       get clock in UTC microseconds.  Returns false if it is not available.
@@ -67,8 +83,14 @@ private:
     static AP_RTC *_singleton;
     HAL_Semaphore rsem;
 
+    // Indicates that the hw RTC clock is valid (no Oscillator Stop bit was set)
+    bool _hw_rtc_valid;
+
     source_type rtc_source_type = SOURCE_NONE;
     int64_t rtc_shift;
+
+     AP_RTC_Backend *_rtc_hw_driver;
+  
 
 };
 
