@@ -40,10 +40,6 @@ public:
     ScriptingCANSensor(AP_CAN::Protocol dtype)
         : CANSensor("Script") {
         register_driver(dtype);
-        for (int i=0;i<MAX_FILTERS;i++) {
-            filter_mask[i] = UINT32_MAX;
-            filter_value[i] = UINT32_MAX;
-        }
     }
 
     // handler for outgoing frames, using uint32
@@ -54,19 +50,6 @@ public:
 
     // add a new buffer to this sensor
     ScriptingCANBuffer* add_buffer(uint32_t buffer_len);
-
-    uint32_t filter_mask[MAX_FILTERS]; 
-    uint32_t filter_value[MAX_FILTERS];
-
-    void add_filter(uint32_t mask, uint32_t value) {
-        for (int i=0;i<MAX_FILTERS;i++) {
-            if (filter_mask[i] == UINT32_MAX) {
-                filter_mask[i] = mask;
-                filter_value[i] = value;
-                return;
-            }
-        }
-    }
 
 private:
 
@@ -93,9 +76,11 @@ public:
     // recursively add new buffer
     void add_buffer(ScriptingCANBuffer* new_buff);
 
-    void add_filter(uint32_t mask, uint32_t value) {
-        sensor.add_filter(mask, value);
-    }
+    // Add a filter to this buffer
+    bool add_filter(uint32_t mask, uint32_t value);
+
+    // Helper for DroneCAN msg ID
+    bool add_DroneCAN_filter(uint16_t msg_id);
 
 private:
 
@@ -106,6 +91,10 @@ private:
     ScriptingCANBuffer *next;
 
     HAL_Semaphore sem;
+
+    uint8_t num_filters;
+    uint32_t filter_mask[MAX_FILTERS]; 
+    uint32_t filter_value[MAX_FILTERS];
 
 };
 

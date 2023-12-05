@@ -983,10 +983,14 @@ function ScriptingCANBuffer_ud:read_frame() end
 
 -- Add a filter to the CAN buffer, mask is bitwise ANDed with the frame id and compared to value if not match frame is not buffered
 -- By default no filters are added and all frames are buffered, write is not affected by filters
--- Maxmum number of filters is 8
+-- Maximum number of filters is 8
 ---@param mask uint32_t_ud
 ---@param value uint32_t_ud
 function ScriptingCANBuffer_ud:add_filter(mask, value) end
+
+-- Add a DroneCAN filter to the CAN buffer, this is a helper on add_filter method for a DroneCAN message
+---@param id uint32_t_ud
+function ScriptingCANBuffer_ud:add_DroneCAN_filter(id) end
 
 -- desc
 ---@param frame CANFrame_ud

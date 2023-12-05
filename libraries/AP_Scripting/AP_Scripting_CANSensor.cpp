@@ -16,6 +16,7 @@
   Scripting CANSensor class, for easy scripting CAN support
  */
 #include "AP_Scripting_CANSensor.h"
+#include <AP_Math/AP_Math.h>
 
 #if AP_SCRIPTING_CAN_SENSOR_ENABLED
 
@@ -29,19 +30,7 @@ bool ScriptingCANSensor::write_frame(AP_HAL::CANFrame &out_frame, const uint32_t
 void ScriptingCANSensor::handle_frame(AP_HAL::CANFrame &frame)
 {
     WITH_SEMAPHORE(sem);
-    // Check if frame matches any filters
-    bool find = false;
-    for (int i=0;i<MAX_FILTERS;i++) {
-        if (filter_mask[i] == UINT32_MAX) {
-            break;
-        }
-        if ((frame.id & filter_mask[i]) == filter_value[i]) {
-            find = true;
-            break;
-        }
-    }
-
-    if (buffer_list != nullptr && find) {
+    if (buffer_list != nullptr) {
         buffer_list->handle_frame(frame);
     }
 }
@@ -74,8 +63,24 @@ bool ScriptingCANBuffer::read_frame(AP_HAL::CANFrame &frame)
 // recursively add frame to buffer
 void ScriptingCANBuffer::handle_frame(AP_HAL::CANFrame &frame)
 {
+    // Check if frame matches any filters
+    bool accept = num_filters == 0;
+    static_assert(sizeof(filter_mask) == sizeof(filter_value), "filter mask and values must match");
+    for (uint8_t i = 0; i < MIN(num_filters, sizeof(filter_mask)); i++) {
+        if ((frame.id & filter_mask[i]) == filter_value[i]) {
+            accept = true;
+            break;
+        }
+    }
+
     WITH_SEMAPHORE(sem);
-    buffer.push(frame);
+
+    // Add to buffer for scripting to read
+    if (accept) {
+        buffer.push(frame);
+    }
+
+    // filtering is not applied to other buffers
     if (next != nullptr) {
         next->handle_frame(frame);
     }
@@ -90,5 +95,26 @@ void ScriptingCANBuffer::add_buffer(ScriptingCANBuffer* new_buff) {
     }
     next->add_buffer(new_buff);
 }
+
+// Add a filter, will pass ID's that match value given the mask
+bool ScriptingCANBuffer::add_filter(uint32_t mask, uint32_t value) {
+
+    // Run out of filters
+    if (num_filters >= MAX_FILTERS) {
+        return false;
+    }
+
+    // Add to list and increment
+    filter_mask[num_filters] = mask;
+    filter_value[num_filters] = value;
+    num_filters++;
+    return true;
+}
+
+// Helper for DroneCAN msg ID
+bool ScriptingCANBuffer::add_DroneCAN_filter(uint16_t msg_id) {
+    return add_filter(0x00FFFF00, uint32_t(msg_id) << 8);
+}
+
 
 #endif // AP_SCRIPTING_CAN_SENSOR_ENABLED
