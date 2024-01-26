@@ -39,6 +39,14 @@ Plane::Plane(const char *frame_str) :
     ground_behavior = GROUND_BEHAVIOR_FWD_ONLY;
     lock_step_scheduled = true;
 
+    if (strstr(frame_str, "kadet")) {
+        mass = 22;
+        thrust_scale = (mass * GRAVITY_MSS) / hover_throttle;
+        have_launcher = true;
+        launch_accel = 15;
+        launch_time = 2;
+    }
+
     if (strstr(frame_str, "-heavy")) {
         mass = 8;
     }

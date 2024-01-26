@@ -25,6 +25,10 @@ public:
     // temperature not available via analog backend
     bool get_temperature(float &temperature) override;
 
+    //Hack to calculate pressure from sim->airspeed
+    static void _update_airspeed(float true_airspeed);
+    static float get_EAS2TAS(float altitude);
+
 private:
 };
 
