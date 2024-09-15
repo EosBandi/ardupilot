@@ -19,6 +19,7 @@
 #include <AP_HAL/AP_HAL.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include "AP_Proximity_MR72_CAN.h"
+#include <AP_Logger/AP_Logger.h>
 
 const AP_Param::GroupInfo AP_Proximity_MR72_CAN::var_info[] = {
 
@@ -49,14 +50,33 @@ AP_Proximity_MR72_CAN::AP_Proximity_MR72_CAN(AP_Proximity &_frontend,
 // update state
 void AP_Proximity_MR72_CAN::update(void)
 {
+
+        const uint32_t now = AP_HAL::millis();
+        if (now - last_data_check > 1000) {
+            AP::logger().WriteStreaming("CNSP",
+                            "TimeUS,Pck",
+                            "s-",
+                            "F-",
+                            "QI",
+                            AP_HAL::micros64(),
+                            received_bytes);
+
+        last_data_check = now;
+        received_bytes = 0;
+        }
+
     WITH_SEMAPHORE(_sem);
-    const uint32_t now = AP_HAL::millis();
+    
     if (now - last_update_ms > 500) {
         // no new data.
         set_status(AP_Proximity::Status::NoData);
     } else {
         set_status(AP_Proximity::Status::Good);
     }
+
+
+
+
 }
 
 // handler for incoming frames. These come in at 100Hz
@@ -67,6 +87,9 @@ bool AP_Proximity_MR72_CAN::handle_frame(AP_HAL::CANFrame &frame)
 
     // check if message is coming from the right sensor ID
     const uint16_t id = frame.id;
+
+    //We caclculate reveived bytes per seconf regardless of ID, so it will aggregate all the data from Nanoradar devices
+    received_bytes += 8;
 
     if (receive_id > 0 && (get_radar_id(frame.id) != uint32_t(receive_id))) {
         return false;
