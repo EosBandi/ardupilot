@@ -46,7 +46,7 @@ class AP_BattMonitor_Torqeedo;
 class AP_BattMonitor_FuelLevel_Analog;
 class AP_BattMonitor_EFI;
 class AP_BattMonitor_Scripting;
-
+class AP_BattMonitor_Mavlink;
 
 class AP_BattMonitor
 {
@@ -72,6 +72,7 @@ class AP_BattMonitor
     friend class AP_BattMonitor_FuelLevel_Analog;
     friend class AP_BattMonitor_Synthetic_Current;
     friend class AP_BattMonitor_Scripting;
+    friend class AP_BattMonitor_Mavlink;
 
 public:
 
@@ -112,6 +113,7 @@ public:
         EFI                            = 27,
         AD7091R5                       = 28,
         Scripting                      = 29,
+        Mavlink                        = 64
     };
 
     FUNCTOR_TYPEDEF(battery_failsafe_handler_fn_t, void, const char *, const int8_t);
@@ -158,6 +160,7 @@ public:
         bool        has_state_of_health_pct;   // state_of_health_pct is only valid if this is true
         uint8_t     instance;                  // instance number of this backend
         const struct AP_Param::GroupInfo *var_info;
+        int8_t      percent;
     };
 
     static const struct AP_Param::GroupInfo *backend_var_info[AP_BATT_MONITOR_MAX_INSTANCES];
@@ -205,6 +208,7 @@ public:
 
     /// time_remaining - returns remaining battery time
     bool time_remaining(uint32_t &seconds, const uint8_t instance = AP_BATT_PRIMARY_INSTANCE) const WARN_IF_UNUSED;
+    uint16_t time_remaining(const uint8_t instance = AP_BATT_PRIMARY_INSTANCE) const;   
 
     /// pack_capacity_mah - returns the capacity of the battery pack in mAh when the pack is full
     int32_t pack_capacity_mah(uint8_t instance) const;
@@ -275,6 +279,7 @@ public:
 
     // Returns mavlink fault state
     uint32_t get_mavlink_fault_bitmask(const uint8_t instance) const;
+    void handle_mavlink_battery(const mavlink_message_t &battery_status);
 
     // return true if state of health (as a percentage) can be provided and fills in soh_pct argument
     bool get_state_of_health_pct(uint8_t instance, uint8_t &soh_pct) const;
@@ -314,4 +319,5 @@ private:
 
 namespace AP {
     AP_BattMonitor &battery();
+    AP_BattMonitor *get_battery_pointer();
 };

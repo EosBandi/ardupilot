@@ -22,6 +22,7 @@
 #include "AP_BattMonitor_Synthetic_Current.h"
 #include "AP_BattMonitor_AD7091R5.h"
 #include "AP_BattMonitor_Scripting.h"
+#include "AP_BattMonitor_Mavlink.h"
 
 #include <AP_HAL/AP_HAL.h>
 
@@ -567,6 +568,10 @@ AP_BattMonitor::init()
                 break;
 #endif // AP_BATTERY_SCRIPTING_ENABLED
             case Type::NONE:
+                break;
+            case Type::Mavlink:
+                drivers[instance]= new AP_BattMonitor_Mavlink(*this,state[instance],_params[instance]);
+                break;
             default:
                 break;
         }
@@ -1096,6 +1101,15 @@ bool AP_BattMonitor::healthy() const
     return true;
 }
 
+void AP_BattMonitor::handle_mavlink_battery(const mavlink_message_t &battery_status)
+{
+    for (uint8_t instance=0; instance<AP_BATT_MONITOR_MAX_INSTANCES; instance++) {
+        if(get_type(instance)==Type::Mavlink && drivers[instance]!=nullptr)
+            drivers[instance]->handle_mavlink(battery_status,instance);
+    }
+}
+
+
 #if AP_BATTERY_SCRIPTING_ENABLED
 /*
   handle state update from a lua script
@@ -1114,6 +1128,11 @@ namespace AP {
 AP_BattMonitor &battery()
 {
     return *AP_BattMonitor::get_singleton();
+}
+
+AP_BattMonitor *get_battery_pointer()
+{
+return AP_BattMonitor::get_singleton();
 }
 
 };

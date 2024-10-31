@@ -50,4 +50,6 @@ public:
 #if AP_BATTERY_ESC_TELEM_OUTBOUND_ENABLED
     AP_Int8  _esc_telem_outbound_index; /// bitmask of ESCs to forward voltage, current, consumption and temperature to.
 #endif
+    AP_Int16 _comp_id;                  /// Mavlink component ID to accept BATTERY_STATUS messages from
+    AP_Int16 _sys_id;                  /// Mavlink component ID to accept BATTERY_STATUS messages from
 };

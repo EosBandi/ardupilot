@@ -396,6 +396,26 @@ void GCS_MAVLINK::param_io_timer(void)
         vp->copy_name_token(token, reply.param_name, AP_MAX_NAME_SIZE, true);
     } else {
         strncpy(reply.param_name, req.param_name, AP_MAX_NAME_SIZE+1);
+
+           if (strcmp(req.param_name, "DID_ENABLE") == 0 || strcmp(req.param_name, "DID_OPTIONS") == 0)
+           {
+            if (strcmp(req.param_name, "DID_ENABLE") == 0)
+            {
+                reply.p_type = AP_PARAM_INT8;
+            }
+            else
+            {
+                reply.p_type = AP_PARAM_INT16;
+            }
+            reply.chan = req.chan;
+            reply.param_name[AP_MAX_NAME_SIZE] = 0;
+            reply.value = 1;
+            reply.param_index = req.param_index;
+            reply.count = AP_Param::count_parameters();
+            param_replies.push(reply);
+            return;
+           }
+
         vp = AP_Param::find(req.param_name, &reply.p_type);
         if (vp == nullptr) {
             return;
