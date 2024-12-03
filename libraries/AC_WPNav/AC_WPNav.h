@@ -41,6 +41,9 @@ public:
     // get terrain's altitude (in cm above the ekf origin) at the current position (+ve means terrain below vehicle is above ekf origin's altitude)
     bool get_terrain_offset(float& offset_cm);
 
+    // get terrain's altitude lookahead based in the valocity target
+    bool get_terrain_offset_lookahead(float &offset_cm);
+    
     // return terrain following altitude margin.  vehicle will stop if distance from target altitude is larger than this margin
     float get_terrain_margin() const { return MAX(_terrain_margin, 0.1); }
 
@@ -251,6 +254,7 @@ protected:
     AP_Float    _wp_accel_z_cmss;       // vertical acceleration in cm/s/s during missions
     AP_Float    _wp_jerk;               // maximum jerk used to generate scurve trajectories in m/s/s/s
     AP_Float    _terrain_margin;        // terrain following altitude margin. vehicle will stop if distance from target altitude is larger than this margin
+    AP_Float    _terrain_lookahead_multiplier; // terrain following lookahead multiplier. 1.0 means lookahead is equal to the target velocity in cms, zero means lookahead is disabled
 
     // WPNAV_SPEED param change checker
     bool _check_wp_speed_change;        // if true WPNAV_SPEED param should be checked for changes in-flight
@@ -290,4 +294,6 @@ protected:
     AP_Int8     _rangefinder_use;       // parameter that specifies if the range finder should be used for terrain following commands
     bool        _rangefinder_healthy;   // true if rangefinder distance is healthy (i.e. between min and maximum)
     float       _rangefinder_terrain_offset_cm; // latest rangefinder based terrain offset (e.g. terrain's height above EKF origin)
+    float       _last_terrain_offset_cm = 0.0f; // last terrain offset used for terrain following
+    float       _lookahead_mp = 1.0f;
 };

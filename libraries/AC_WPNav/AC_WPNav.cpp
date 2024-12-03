@@ -101,6 +101,15 @@ const AP_Param::GroupInfo AC_WPNav::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("ACCEL_C",     13, AC_WPNav, _wp_accel_c_cmss, 0.0),
 
+    // @Param: TER_LKAHD
+    // @DisplayName: Terrain lookahed multiplier
+    // @Description: The lookahead target is calculated by multiplying the target velocity by this value and adding it to the current position, if zero lookahead is disabled
+    // @Units: 
+    // @Range: 0 5
+    // @Increment: 0.5
+    // @User: Standard
+    AP_GROUPINFO("TER_LKAHD",     14, AC_WPNav, _terrain_lookahead_multiplier, 1.0),
+
     AP_GROUPEND
 };
 
@@ -455,18 +464,80 @@ void AC_WPNav::get_wp_stopping_point(Vector3f& stopping_point) const
     stopping_point = stop.tofloat();
 }
 
+// get terrain's altitude lookahead based in the valocity target 
+// (in cm above the ekf origin) (+ve means terrain below vehicle is above ekf origin's altitude)
+bool AC_WPNav::get_terrain_offset_lookahead(float& terrain_lookahead_offset_cm)
+{
+
+    switch (get_terrain_source()) {
+
+    case AC_WPNav::TerrainSource::TERRAIN_UNAVAILABLE:
+        return false;
+    case AC_WPNav::TerrainSource::TERRAIN_FROM_RANGEFINDER:
+        if (_rangefinder_healthy) {
+            terrain_lookahead_offset_cm = _rangefinder_terrain_offset_cm;
+            return true;
+        }
+        return false;
+    case AC_WPNav::TerrainSource::TERRAIN_FROM_TERRAINDATABASE:
+
+        Vector3f lookahead_pos = _pos_control.get_pos_target_cm().tofloat();
+        Vector3f tv = _pos_control.get_vel_target_cms().tofloat();
+
+        lookahead_pos += (tv) * (_terrain_lookahead_multiplier + _lookahead_mp * _terrain_lookahead_multiplier);
+        Location lookahead_loc = Location(lookahead_pos, Location::AltFrame::ABOVE_TERRAIN);
+
+        float theight_loc;
+        AP_Terrain *terrain = AP::terrain();
+        if (terrain != nullptr && terrain->height_amsl(lookahead_loc, theight_loc))
+        {
+
+            // in meters
+            float height_above_terrain = lookahead_loc.alt * 0.01 - theight_loc;
+            terrain_lookahead_offset_cm = lookahead_pos.z - (height_above_terrain * 100.0);
+
+            Location ekf_origin;
+            if (AP::ahrs().get_origin(ekf_origin))
+            {
+                terrain_lookahead_offset_cm = terrain_lookahead_offset_cm - ekf_origin.alt;
+            }
+
+            float _terrain_lookahead_rate_cm = terrain_lookahead_offset_cm - _last_terrain_offset_cm;
+
+            _last_terrain_offset_cm = terrain_lookahead_offset_cm * 0.01 + _last_terrain_offset_cm * 0.99; // low pass filter
+            _lookahead_mp = MIN(abs(_terrain_lookahead_rate_cm / 100), 1.5f);
+            if (_lookahead_mp <= 0.2f)
+                _lookahead_mp = 0.0f;
+
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+        // We should never get here
+        return false;
+    }
+
 /// advance_wp_target_along_track - move target location along track from origin to destination
 bool AC_WPNav::advance_wp_target_along_track(float dt)
 {
     // calculate terrain adjustments
     float terr_offset = 0.0f;
-    if (_terrain_alt && !get_terrain_offset(terr_offset)) {
-        return false;
+    if (_terrain_lookahead_multiplier < 0.1f) // You cannot compare to zero in floating point so anyting below 0.1 is considered zero
+    {
+        if (_terrain_alt && !get_terrain_offset(terr_offset)) return false;
     }
+    else
+    {
+        if (_terrain_alt && !get_terrain_offset_lookahead(terr_offset)) return false;
+    }
+
     const float offset_z_scaler = _pos_control.pos_offset_z_scaler(terr_offset, get_terrain_margin() * 100.0);
 
     // input shape the terrain offset
-    _pos_control.set_pos_terrain_target_cm(terr_offset);
+   _pos_control.set_pos_terrain_target_cm(terr_offset);    
 
     // get position controller's position offset (post input shaping) so it can be used in position error calculation
     const Vector3p& psc_pos_offset = _pos_control.get_pos_offset_cm();
