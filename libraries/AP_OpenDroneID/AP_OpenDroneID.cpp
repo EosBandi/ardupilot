@@ -38,6 +38,7 @@
 #include <AP_Baro/AP_Baro.h>
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Parachute/AP_Parachute.h>
+#include <AP_BattMonitor/AP_BattMonitor.h>
 #include <AP_Vehicle/AP_Vehicle.h>
 #include <AP_DroneCAN/AP_DroneCAN.h>
 #include <stdio.h>
@@ -336,6 +337,10 @@ void AP_OpenDroneID::send_location_message()
 
     const AP_GPS::GPS_Status gps_status = gps.status();
     const bool got_bad_gps_fix = (gps_status < AP_GPS::GPS_Status::GPS_OK_FIX_3D);
+           
+    const AP_BattMonitor &_battery = AP::battery();
+    const bool battery_failsafed = _battery.has_failsafed();
+    
     const bool armed = hal.util->get_soft_armed();
 
     Location current_location;
@@ -354,6 +359,16 @@ void AP_OpenDroneID::send_location_message()
         // if in crashed state also declare an emergency
         uav_status = MAV_ODID_STATUS_EMERGENCY;
     }
+    
+    // if we are armed and flight mode is althold then we have an emergency
+    if (armed && AP::vehicle()->get_mode() == 2) {      // Magic number for ALT_HOLD ! This is only valid for Copter
+        uav_status = MAV_ODID_STATUS_EMERGENCY;
+    }
+
+     if (armed && battery_failsafed) {
+         // if we are armed and battery failsafe is triggered then we have an emergency
+         uav_status = MAV_ODID_STATUS_EMERGENCY;
+     }
 
     // if we are armed with no GPS fix and we haven't specifically
     // allowed for non-GPS operation then declare an emergency
