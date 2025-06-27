@@ -343,3 +343,7 @@ define HAL_ADSB_SAGETECH_MXS_ENABLED HAL_ADSB_ENABLED
 # note that if firmware is build with --secure-bl then DFU is
 # disabled
 ENABLE_DFU_BOOT 1
+
+
+#Enable PPP networking
+define AP_NETWORKING_BACKEND_PPP 1
