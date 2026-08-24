@@ -3113,6 +3113,90 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
         self.wait_disarmed()
         self.progress("MOTORS DISARMED OK")
 
+    def dronecan_node(self):
+        '''return a dronecan python library node on the SITL multicast CAN
+        bus. Keep one node for a whole test: a new node restarts transfer
+        IDs at zero and libcanard drops the repeat as a duplicate'''
+        import dronecan
+        # vendor DSDL so the library can decode everything on the bus:
+        dronecan.load_dsdl(util.reltopdir('libraries/AP_DroneCAN/dsdl/ardupilot'))
+        node = dronecan.make_node('mcast:0', node_id=100, bitrate=1000000)
+        node.mode = dronecan.uavcan.protocol.NodeStatus().MODE_OPERATIONAL
+        return node
+
+    def dronecan_periph_param_set(self, node, nodeid, name, value):
+        '''set an integer parameter on a DroneCAN node using the dronecan
+        python library node returned by dronecan_node()'''
+        import dronecan
+        req = dronecan.uavcan.protocol.param.GetSet.Request()
+        req.name = name
+        req.value = dronecan.uavcan.protocol.param.Value(integer_value=int(value))
+        result = {}
+
+        def cb(e):
+            result['response'] = None if e is None else e.response
+
+        node.request(req, nodeid, cb, timeout=3)
+        tstart = time.time()
+        while 'response' not in result and time.time() - tstart < 5:
+            node.spin(0.1)
+        resp = result.get('response')
+        if resp is None:
+            raise NotAchievedException("No GetSet response from node %u" % nodeid)
+        if resp.name.decode() != name:
+            raise NotAchievedException("Node %u does not know parameter %s" % (nodeid, name))
+        self.progress("Node %u: %s=%s" % (nodeid, name, resp.value))
+
+    def CANGPSIntegrity(self):
+        '''GNSS_INTEGRITY sourced from a DroneCAN GPS via ardupilot.gnss.Integrity'''
+        self.set_parameters({
+            "CAN_P1_DRIVER": 1,
+            "GPS1_TYPE": 9,
+            "GPS2_TYPE": 0,
+            # disable simulated serial GPS, so only via DroneCAN
+            "SIM_GPS_DISABLE": 1,
+            "SIM_GPS2_DISABLE": 1,
+        })
+        self.context_push()
+        # log while disarmed so the GPJ message can be checked without flying
+        self.set_parameter("LOG_DISARMED", 1)
+        self.context_collect('STATUSTEXT')
+        self.reboot_sitl()
+        gps1_det_text = self.wait_text("GPS 1: specified as DroneCAN.*", regex=True, check_context=True)
+        gps1_nodeid = int(gps1_det_text.split('-')[1])
+        self.context_stop_collecting('STATUSTEXT')
+        self.progress("GPS 1 is DroneCAN node %u" % gps1_nodeid)
+
+        self.wait_ready_to_arm()
+        self.set_message_rate_hz('GNSS_INTEGRITY', 2)
+
+        nominal = {'id': 0, 'jamming_state': 1, 'spoofing_state': 1}
+        detected = {'id': 0, 'jamming_state': 3, 'spoofing_state': 3}
+        node = self.dronecan_node()
+        try:
+            self.start_subtest("Nominal integrity state via DroneCAN")
+            self.wait_message_field_values('GNSS_INTEGRITY', nominal, timeout=60)
+
+            self.start_subtest("Simulated jamming and spoofing on the periph")
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 1)
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 1)
+            self.wait_message_field_values('GNSS_INTEGRITY', detected, timeout=30)
+            self.assert_current_onboard_log_contains_message('GPJ')
+
+            self.start_subtest("Recovery")
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 0)
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 0)
+            self.wait_message_field_values('GNSS_INTEGRITY', nominal, timeout=30)
+        finally:
+            # make sure the periph is left in its nominal state
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 0)
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 0)
+            node.close()
+
+        self.set_message_rate_hz('GNSS_INTEGRITY', 0)
+        self.context_pop()
+        self.reboot_sitl()
+
     def CANGPSCopterMission(self):
         '''fly mission which tests normal operation alongside CAN GPS'''
         self.set_parameters({
@@ -12491,6 +12575,7 @@ return update, 1000
     def testcan(self):
         ret = ([
             self.CANGPSCopterMission,
+            self.CANGPSIntegrity,
             self.TestLogDownloadMAVProxyCAN,
         ])
         return ret
