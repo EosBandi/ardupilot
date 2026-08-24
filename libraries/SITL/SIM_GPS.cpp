@@ -154,6 +154,13 @@ const AP_Param::GroupInfo SIM::GPSParms::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("OPTIONS",  18, GPSParms, options, 0),
 
+    // @Param: SPOOF
+    // @DisplayName: GPS spoofing indication enable
+    // @Description: Enable simulated GPS spoofing indication (u-blox NAV-STATUS spoofDetState reports spoofing indicated)
+    // @User: Advanced
+    // @Values: 0:Disabled, 1:Enabled
+    AP_GROUPINFO("SPOOF",    19, GPSParms, spoof, 0),
+
     AP_GROUPEND
 };
 }
