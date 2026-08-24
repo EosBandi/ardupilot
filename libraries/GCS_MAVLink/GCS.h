@@ -363,6 +363,12 @@ public:
     void send_airspeed();
     uint8_t last_airspeed_idx;
 #endif
+#if AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
+    // Send per instance GNSS_INTEGRITY message
+    // last index is used to rotate through receivers
+    void send_gnss_integrity();
+    uint8_t last_gnss_integrity_idx;
+#endif
     void send_simstate() const;
     void send_sim_state() const;
     void send_ahrs();
