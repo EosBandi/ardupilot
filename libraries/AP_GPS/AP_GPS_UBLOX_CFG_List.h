@@ -22,6 +22,9 @@ struct PACKED ubx_config_list {
 #define RATE_HW 5
 #define RATE_HW2 5
 #define RATE_TIM_TM2 1
+// reduced NAV-STATUS rate used once NAV-PVT is available; NAV-STATUS is
+// kept alive on spoof-detection capable receivers for spoofDetState
+#define RATE_STATUS_INTEGRITY 5
 
 // epochs per RTCM output for moving baseline
 #define RTK_MB_RTCM_RATE 1
@@ -35,6 +38,7 @@ static constexpr ubx_config_list config_common_uart[] = {
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART1, RATE_TIMEGPS },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART1,   RATE_DOP },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART1,    RATE_HW },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART1, RATE_STATUS_INTEGRITY },
 };
 
 static constexpr ubx_config_list config_common_uart1[] = {
@@ -43,10 +47,12 @@ static constexpr ubx_config_list config_common_uart1[] = {
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART1, RATE_TIMEGPS },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART1,   RATE_DOP },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART1,    RATE_HW },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART1, RATE_STATUS_INTEGRITY },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_PVT_UART2,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART2, 0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART2,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART2,    0U },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART2, 0U },
 };
 
 static constexpr ubx_config_list config_common_uart2[] = {
@@ -56,10 +62,12 @@ static constexpr ubx_config_list config_common_uart2[] = {
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART2, RATE_TIMEGPS },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART2,   RATE_DOP },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART2,    RATE_HW },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART2, RATE_STATUS_INTEGRITY },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_PVT_UART1,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART1, 0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART1,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART1,    0U },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART1, 0U },
 };
 
 /*
