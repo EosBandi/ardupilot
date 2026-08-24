@@ -224,6 +224,16 @@ public:
         bool corrected_timestamp_updated;  ///< true if the corrected timestamp has been updated
         uint32_t lagged_sample_count;       ///< number of samples with 50ms more lag than expected
 
+        // GNSS integrity state as reported by the receiver; values use the
+        // MAVLink GNSS_INTEGRITY enums/bitmask. Zero means UNKNOWN for all
+        // enum fields, so a timeout reset of this state gives "unknown"
+        struct GNSSIntegrity {
+            uint32_t system_errors;         ///< GPS_SYSTEM_ERROR_FLAGS bitmask
+            uint8_t jamming_state;          ///< GPS_JAMMING_STATE
+            uint8_t spoofing_state;         ///< GPS_SPOOFING_STATE
+            uint8_t authentication_state;   ///< GPS_AUTHENTICATION_STATE
+        } integrity;
+
         // all the following fields must only all be filled by RTK capable backend drivers
         uint32_t rtk_time_week_ms;         ///< GPS Time of Week of last baseline in milliseconds
         uint16_t rtk_week_number;          ///< GPS Week Number of last baseline
@@ -499,6 +509,11 @@ public:
 
     // lock out a GPS port, allowing another application to use the port
     void lock_port(uint8_t instance, bool locked);
+
+    // per-instance GNSS integrity state (MAVLink GNSS_INTEGRITY enum values)
+    const GPS_State::GNSSIntegrity &get_gnss_integrity(uint8_t instance) const {
+        return state[instance].integrity;
+    }
 
     //MAVLink Status Sending
     void send_mavlink_gps_raw(mavlink_channel_t chan);
