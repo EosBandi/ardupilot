@@ -552,7 +552,12 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
             config_msg_id = CONFIG_RATE_POSLLH;
             break;
         case MSG_STATUS:
-            desired_rate = havePvtMsg ? 0 : RATE_STATUS;
+            if (supports_spoof_detection()) {
+                // keep NAV-STATUS alive at a reduced rate for spoofDetState
+                desired_rate = havePvtMsg ? RATE_STATUS_INTEGRITY : RATE_STATUS;
+            } else {
+                desired_rate = havePvtMsg ? 0 : RATE_STATUS;
+            }
             config_msg_id = CONFIG_RATE_STATUS;
             break;
         case MSG_SOL:
@@ -1555,7 +1560,9 @@ AP_GPS_UBLOX::_parse_gps(void)
                         _unconfigured_messages |= CONFIG_TMODE_MODE;
                     }
                     _hardware_generation = UBLOX_F9;
-                    _unconfigured_messages |= CONFIG_F9 | CONFIG_RATE_MON_RF;
+                    // also (re)arm MON-RF and NAV-STATUS now the generation is
+                    // known; NAV-STATUS may already have been disabled by PVT
+                    _unconfigured_messages |= CONFIG_F9 | CONFIG_RATE_MON_RF | CONFIG_RATE_STATUS;
                     _unconfigured_messages &= ~CONFIG_GNSS;
                     if (strncmp(_module, "ZED-F9P", UBLOX_MODULE_LEN) == 0) {
                         _hardware_variant = UBLOX_F9_ZED;
@@ -1566,14 +1573,14 @@ AP_GPS_UBLOX::_parse_gps(void)
                 if (strncmp(_version.swVersion, "EXT CORE 4", 10) == 0) {
                     // a M9
                     _hardware_generation = UBLOX_M9;
-                    _unconfigured_messages |= CONFIG_RATE_MON_RF;
+                    _unconfigured_messages |= CONFIG_RATE_MON_RF | CONFIG_RATE_STATUS;
                 }
                 check_L1L5 = true;
             }
             // check for M10
             if (strncmp(_version.hwVersion, "000A0000", 8) == 0) {
                 _hardware_generation = UBLOX_M10;
-                _unconfigured_messages |= CONFIG_M10 | CONFIG_RATE_MON_RF;
+                _unconfigured_messages |= CONFIG_M10 | CONFIG_RATE_MON_RF | CONFIG_RATE_STATUS;
                 // M10 does not support CONFIG_GNSS
                 _unconfigured_messages &= ~CONFIG_GNSS;
                 check_L1L5 = true;
@@ -1653,10 +1660,17 @@ AP_GPS_UBLOX::_parse_gps(void)
               _buffer.status.fix_status,
               _buffer.status.fix_type);
         _check_new_itow(_buffer.status.itow);
+        if (supports_spoof_detection()) {
+            state.integrity.spoofing_state = spoofing_state_to_mavlink((_buffer.status.flags2 >> 3) & 0x03U);
+        }
         if (havePvtMsg) {
-            // when we have PVT we don't need status, just change the rate for STATUS to zero
-            _unconfigured_messages &= ~CONFIG_RATE_STATUS;
-            _configure_message_rate(CLASS_NAV, _msg_id, 0);
+            if (!supports_spoof_detection()) {
+                // when we have PVT we don't need status, just change the rate for STATUS to zero
+                _unconfigured_messages &= ~CONFIG_RATE_STATUS;
+                _configure_message_rate(CLASS_NAV, _msg_id, 0);
+            }
+            // on spoof-detection capable receivers NAV-STATUS is kept at a
+            // reduced rate, managed by _verify_rate()
             break;
         }
         if (_buffer.status.fix_status & NAV_STATUS_FIX_VALID) {
@@ -1785,10 +1799,18 @@ AP_GPS_UBLOX::_parse_gps(void)
     case MSG_PVT:
         Debug("MSG_PVT");
 
-        havePvtMsg = true;
-
-        // if we have PVT we don't want MSG_STATUS
-        _unconfigured_messages &= ~CONFIG_RATE_STATUS;
+        if (!havePvtMsg) {
+            havePvtMsg = true;
+            if (supports_spoof_detection()) {
+                // now that we have PVT, reduce NAV-STATUS to a low rate; it is
+                // kept alive for spoofDetState. Re-arm the config bit so the
+                // config poll cycle applies the new rate via _verify_rate()
+                _unconfigured_messages |= CONFIG_RATE_STATUS;
+            } else {
+                // if we have PVT we don't want MSG_STATUS
+                _unconfigured_messages &= ~CONFIG_RATE_STATUS;
+            }
+        }
 
         // position
         _check_new_itow(_buffer.pvt.itow);
@@ -1919,8 +1941,12 @@ AP_GPS_UBLOX::_parse_gps(void)
                 // only 7 and newer support CONFIG_GNSS
                 _unconfigured_messages &= ~CONFIG_GNSS;
                 break;
-            case UBLOX_7:
             case UBLOX_M8:
+                // (re)arm NAV-STATUS now we know spoofDetState is available;
+                // it may already have been disabled by PVT
+                _unconfigured_messages |= CONFIG_RATE_STATUS;
+                FALLTHROUGH;
+            case UBLOX_7:
 #if UBLOX_SPEED_CHANGE
                 port->begin(4000000U);
                 Debug("Changed speed to 4Mhz for SPI-driven UBlox\n");

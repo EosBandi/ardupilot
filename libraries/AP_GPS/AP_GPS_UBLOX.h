@@ -81,6 +81,9 @@
 #define RATE_HW 5
 #define RATE_HW2 5
 #define RATE_TIM_TM2 1
+// reduced NAV-STATUS rate used once NAV-PVT is available; NAV-STATUS is
+// kept alive on spoof-detection capable receivers for spoofDetState
+#define RATE_STATUS_INTEGRITY 5
 
 #define CONFIG_RATE_NAV      (1<<0)
 #define CONFIG_RATE_POSLLH   (1<<1)
@@ -364,7 +367,7 @@ private:
         uint8_t fix_type;
         uint8_t fix_status;
         uint8_t differential_status;
-        uint8_t res;
+        uint8_t flags2;                                 // bits 4:3 are spoofDetState
         uint32_t time_to_first_fix;
         uint32_t uptime;                                // milliseconds
     };
@@ -881,6 +884,12 @@ private:
     // MON-RF is available on F9/M9 and newer generations
     bool supports_mon_rf(void) const {
         return _hardware_generation >= UBLOX_F9 &&
+               _hardware_generation != UBLOX_UNKNOWN_HARDWARE_GENERATION;
+    }
+    // NAV-STATUS spoofDetState is available on M8 (SPG 3.01+) and newer;
+    // older firmware reports 0 which maps to UNKNOWN
+    bool supports_spoof_detection(void) const {
+        return _hardware_generation >= UBLOX_M8 &&
                _hardware_generation != UBLOX_UNKNOWN_HARDWARE_GENERATION;
     }
     void log_rxm_raw(const struct ubx_rxm_raw &raw);
