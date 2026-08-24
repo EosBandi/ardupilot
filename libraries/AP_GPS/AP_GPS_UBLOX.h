@@ -104,7 +104,8 @@
 #define CONFIG_F9            (1<<19)
 #define CONFIG_M10           (1<<20)
 #define CONFIG_L5            (1<<21)
-#define CONFIG_LAST          (1<<22) // this must always be the last bit
+#define CONFIG_RATE_MON_RF   (1<<22)
+#define CONFIG_LAST          (1<<23) // this must always be the last bit
 
 #define CONFIG_REQUIRED_INITIAL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_VELNED)
 
@@ -523,6 +524,31 @@ private:
         char hwVersion[10];
         char extension[30*UBLOX_MAX_EXTENSIONS]; // extensions are not enabled
     };
+
+    // UBX-MON-RF block (repeated nBlocks times after ubx_mon_rf header)
+    struct PACKED ubx_mon_rf_block {
+        uint8_t  blockId;        // 0
+        uint8_t  flags;          // 1 (jammingState etc)
+        uint8_t  antStatus;      // 2
+        uint8_t  antPower;       // 3
+        uint32_t postStatus;     // 4..7
+        uint8_t  reserved1[4];   // 8..11
+        uint16_t noisePerMS;     // 12..13
+        uint16_t agcCnt;         // 14..15
+        uint8_t  cwSuppression;  // 16
+        int8_t   ofsI;           // 17
+        uint8_t  magI;           // 18
+        int8_t   ofsQ;           // 19
+        uint8_t  magQ;           // 20
+        uint8_t  rfBlockGnssBand;// 21
+        uint8_t  reserved2[2];   // 22..23
+    };
+    struct PACKED ubx_mon_rf {
+        uint8_t version;         // 0
+        uint8_t nBlocks;         // 1
+        uint8_t reserved0[2];    // 2..3
+        ubx_mon_rf_block blocks[2]; // provision for up to 2 RF blocks
+    };
     struct PACKED ubx_nav_svinfo_header {
         uint32_t itow;
         uint8_t numCh;
@@ -619,6 +645,7 @@ private:
         ubx_mon_hw_68 mon_hw_68;
         ubx_mon_hw2 mon_hw2;
         ubx_mon_ver mon_ver;
+        ubx_mon_rf mon_rf;
         ubx_cfg_tp5 nav_tp5;
 #if UBLOX_GNSS_SETTINGS
         ubx_cfg_gnss gnss;
@@ -682,6 +709,7 @@ private:
         MSG_CFG_VALGET = 0x8B,
         MSG_MON_HW = 0x09,
         MSG_MON_HW2 = 0x0B,
+        MSG_MON_RF = 0x38,
         MSG_MON_VER = 0x04,
         MSG_NAV_SVINFO = 0x30,
         MSG_RXM_RAW = 0x10,
@@ -746,6 +774,7 @@ private:
         STEP_DOP,
         STEP_MON_HW,
         STEP_MON_HW2,
+        STEP_MON_RF,
         STEP_RAW,
         STEP_RAWX,
         STEP_VERSION,
@@ -840,7 +869,20 @@ private:
     void unexpected_message(void);
     void log_mon_hw(void);
     void log_mon_hw2(void);
+#if HAL_LOGGING_ENABLED
+    void log_mon_rf(void);
+#endif
     void log_tim_tm2(void);
+
+    // GNSS integrity support
+    void update_mon_rf(void);
+    static uint8_t jamming_state_to_mavlink(uint8_t ubx_jamming_state);
+    static uint8_t spoofing_state_to_mavlink(uint8_t ubx_spoof_det_state);
+    // MON-RF is available on F9/M9 and newer generations
+    bool supports_mon_rf(void) const {
+        return _hardware_generation >= UBLOX_F9 &&
+               _hardware_generation != UBLOX_UNKNOWN_HARDWARE_GENERATION;
+    }
     void log_rxm_raw(const struct ubx_rxm_raw &raw);
     void log_rxm_rawx(const struct ubx_rxm_rawx &raw);
 

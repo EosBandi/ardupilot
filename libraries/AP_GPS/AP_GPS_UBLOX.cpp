@@ -385,6 +385,15 @@ AP_GPS_UBLOX::_request_next_config(void)
             _next_message--;
         }
         break;
+    case STEP_MON_RF:
+        if (supports_mon_rf()) {
+            if(!_request_message_rate(CLASS_MON, MSG_MON_RF)) {
+                _next_message--;
+            }
+        } else {
+            _unconfigured_messages &= ~CONFIG_RATE_MON_RF;
+        }
+        break;
     case STEP_RAW:
 #if UBLOX_RXM_RAW_LOGGING
         if(gps._raw_data == 0) {
@@ -579,6 +588,10 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
         case MSG_MON_HW2:
             desired_rate = RATE_HW2;
             config_msg_id = CONFIG_RATE_MON_HW2;
+            break;
+        case MSG_MON_RF:
+            desired_rate = RATE_HW;
+            config_msg_id = CONFIG_RATE_MON_RF;
             break;
         default:
             return;
@@ -869,6 +882,96 @@ void AP_GPS_UBLOX::log_mon_hw2(void)
 #endif
 }
 
+#if HAL_LOGGING_ENABLED
+void AP_GPS_UBLOX::log_mon_rf(void)
+{
+    if (!should_log()) {
+        return;
+    }
+    // Use structured buffer; validity already checked by update_mon_rf()
+    const ubx_mon_rf &rf = _buffer.mon_rf;
+    const ubx_mon_rf_block &blk0 = rf.blocks[0];
+
+    // Fill UBX1 with RF noise and AGC-like info
+    const struct log_Ubx1 pkt1 {
+        LOG_PACKET_HEADER_INIT(LOG_GPS_UBX1_MSG),
+        time_us    : AP_HAL::micros64(),
+        instance   : state.instance,
+        noisePerMS : blk0.noisePerMS,
+        jamInd     : uint8_t(blk0.flags & 0x03U), // jammingState per spec (0..3)
+        aPower     : blk0.antPower,
+        agcCnt     : blk0.agcCnt,
+        config     : 0, // not used for MON-RF
+    };
+    AP::logger().WriteBlock(&pkt1, sizeof(pkt1));
+
+    // Fill UBX2 with I/Q imbalance and magnitudes
+    const struct log_Ubx2 pkt2 {
+        LOG_PACKET_HEADER_INIT(LOG_GPS_UBX2_MSG),
+        time_us   : AP_HAL::micros64(),
+        instance  : state.instance,
+        ofsI      : blk0.ofsI,
+        magI      : blk0.magI,
+        ofsQ      : blk0.ofsQ,
+        magQ      : blk0.magQ,
+    };
+    AP::logger().WriteBlock(&pkt2, sizeof(pkt2));
+}
+#endif  // HAL_LOGGING_ENABLED
+
+// map u-blox MON-RF/MON-HW jammingState (0..3) to MAVLink GPS_JAMMING_STATE
+uint8_t AP_GPS_UBLOX::jamming_state_to_mavlink(uint8_t ubx_jamming_state)
+{
+    switch (ubx_jamming_state) {
+    case 1:
+        // (named GPS_JAMMING_STATE_NOT_JAMMED in newer mavlink)
+        return GPS_JAMMING_STATE_OK;
+    case 2:
+        // interference visible but fix OK
+        return GPS_JAMMING_STATE_MITIGATED;
+    case 3:
+        // interference visible and no fix
+        return GPS_JAMMING_STATE_DETECTED;
+    default:
+        return GPS_JAMMING_STATE_UNKNOWN;
+    }
+}
+
+// map u-blox NAV-STATUS spoofDetState (0..3) to MAVLink GPS_SPOOFING_STATE
+uint8_t AP_GPS_UBLOX::spoofing_state_to_mavlink(uint8_t ubx_spoof_det_state)
+{
+    switch (ubx_spoof_det_state) {
+    case 1:
+        // (named GPS_SPOOFING_STATE_NOT_SPOOFED in newer mavlink)
+        return GPS_SPOOFING_STATE_OK;
+    case 2:     // spoofing indicated
+    case 3:     // multiple spoofing indications
+        return GPS_SPOOFING_STATE_DETECTED;
+    default:
+        return GPS_SPOOFING_STATE_UNKNOWN;
+    }
+}
+
+// handle a MON-RF message: update jamming state and log
+void AP_GPS_UBLOX::update_mon_rf(void)
+{
+    const ubx_mon_rf &rf = _buffer.mon_rf;
+    if (rf.version != 0 || rf.nBlocks == 0) {
+        return;
+    }
+    // take the worst jamming state across the RF blocks (e.g. L1 and L2/L5);
+    // worst-of on the raw values is valid as the mapping is monotonic
+    uint8_t worst = 0;
+    const uint8_t nblocks = MIN(rf.nBlocks, ARRAY_SIZE(rf.blocks));
+    for (uint8_t i = 0; i < nblocks; i++) {
+        worst = MAX(worst, uint8_t(rf.blocks[i].flags & 0x03U));
+    }
+    state.integrity.jamming_state = jamming_state_to_mavlink(worst);
+#if HAL_LOGGING_ENABLED
+    log_mon_rf();
+#endif
+}
+
 #if UBLOX_TIM_TM2_LOGGING
 void AP_GPS_UBLOX::log_tim_tm2(void)
 {
@@ -1084,6 +1187,9 @@ AP_GPS_UBLOX::_parse_gps(void)
                     break;
                 case MSG_MON_HW2:
                     _unconfigured_messages &= ~CONFIG_RATE_MON_HW2;
+                    break;
+                case MSG_MON_RF:
+                    _unconfigured_messages &= ~CONFIG_RATE_MON_RF;
                     break;
                 }
             }
@@ -1403,12 +1509,24 @@ AP_GPS_UBLOX::_parse_gps(void)
         switch(_msg_id) {
         case MSG_MON_HW:
             if (_payload_length == 60 || _payload_length == 68) {
+                if (!supports_mon_rf()) {
+                    // MON-HW flags bits 3:2 are jammingState on u-blox 7/8
+                    // (always 0 on older generations, mapping to UNKNOWN)
+                    const uint8_t flags = (_payload_length == 68) ?
+                        _buffer.mon_hw_68.flags : _buffer.mon_hw_60.flags;
+                    state.integrity.jamming_state = jamming_state_to_mavlink((flags >> 2) & 0x03U);
+                }
                 log_mon_hw();
             }
             break;
         case MSG_MON_HW2:
             if (_payload_length == 28) {
-                log_mon_hw2();  
+                log_mon_hw2();
+            }
+            break;
+        case MSG_MON_RF:
+            if (_payload_length >= 4 && ((_payload_length - 4U) % sizeof(ubx_mon_rf_block)) == 0) {
+                update_mon_rf();
             }
             break;
         case MSG_MON_VER: {
@@ -1437,7 +1555,7 @@ AP_GPS_UBLOX::_parse_gps(void)
                         _unconfigured_messages |= CONFIG_TMODE_MODE;
                     }
                     _hardware_generation = UBLOX_F9;
-                    _unconfigured_messages |= CONFIG_F9;
+                    _unconfigured_messages |= CONFIG_F9 | CONFIG_RATE_MON_RF;
                     _unconfigured_messages &= ~CONFIG_GNSS;
                     if (strncmp(_module, "ZED-F9P", UBLOX_MODULE_LEN) == 0) {
                         _hardware_variant = UBLOX_F9_ZED;
@@ -1448,13 +1566,14 @@ AP_GPS_UBLOX::_parse_gps(void)
                 if (strncmp(_version.swVersion, "EXT CORE 4", 10) == 0) {
                     // a M9
                     _hardware_generation = UBLOX_M9;
+                    _unconfigured_messages |= CONFIG_RATE_MON_RF;
                 }
                 check_L1L5 = true;
             }
             // check for M10
             if (strncmp(_version.hwVersion, "000A0000", 8) == 0) {
                 _hardware_generation = UBLOX_M10;
-                _unconfigured_messages |= CONFIG_M10;
+                _unconfigured_messages |= CONFIG_M10 | CONFIG_RATE_MON_RF;
                 // M10 does not support CONFIG_GNSS
                 _unconfigured_messages &= ~CONFIG_GNSS;
                 check_L1L5 = true;
@@ -2193,7 +2312,8 @@ static const char *reasons[] = {"navigation rate",
                                 "TIM TM2",
                                 "F9",
                                 "M10",
-                                "L5 Enable Disable"};
+                                "L5 Enable Disable",
+                                "RF monitor rate"};
 
 static_assert((1 << ARRAY_SIZE(reasons)) == CONFIG_LAST, "UBLOX: Missing configuration description");
 
