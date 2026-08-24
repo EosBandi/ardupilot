@@ -321,6 +321,7 @@ private:
     Canard::Publisher<uavcan_equipment_gnss_Auxiliary> gnss_auxiliary{canard_iface};
     Canard::Publisher<ardupilot_gnss_Heading> gnss_heading{canard_iface};
     Canard::Publisher<ardupilot_gnss_Status> gnss_status{canard_iface};
+    Canard::Publisher<ardupilot_gnss_Integrity> gnss_integrity{canard_iface};
 #endif
     // incoming messages
     Canard::ObjCallback<AP_DroneCAN, ardupilot_indication_Button> safety_button_cb{this, &AP_DroneCAN::handle_button};
