@@ -282,6 +282,9 @@ static const ap_message STREAM_EXTENDED_STATUS_msgs[] = {
     MSG_GPS2_RAW,
     MSG_GPS2_RTK,
 #endif
+#if AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
+    MSG_GNSS_INTEGRITY,
+#endif
 };
 static const ap_message STREAM_POSITION_msgs[] = {
     MSG_LOCATION,

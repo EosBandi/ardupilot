@@ -1037,6 +1037,9 @@ ap_message GCS_MAVLINK::mavlink_id_to_ap_message_id(const uint32_t mavlink_id) c
         { MAVLINK_MSG_ID_GPS2_RAW,              MSG_GPS2_RAW},
         { MAVLINK_MSG_ID_GPS2_RTK,              MSG_GPS2_RTK},
 #endif
+#if AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
+        { MAVLINK_MSG_ID_GNSS_INTEGRITY,        MSG_GNSS_INTEGRITY},
+#endif
 #endif
         { MAVLINK_MSG_ID_SYSTEM_TIME,           MSG_SYSTEM_TIME},
         { MAVLINK_MSG_ID_RC_CHANNELS_SCALED,    MSG_SERVO_OUT},
@@ -2413,6 +2416,41 @@ void GCS_MAVLINK::send_airspeed()
 
 }
 #endif // AP_AIRSPEED_ENABLED
+
+#if AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
+void GCS_MAVLINK::send_gnss_integrity()
+{
+    const AP_GPS &gps = AP::gps();
+
+    for (uint8_t i=0; i<GPS_MAX_RECEIVERS; i++) {
+        // try and send the next receiver
+        const uint8_t index = (last_gnss_integrity_idx + 1 + i) % GPS_MAX_RECEIVERS;
+        if (gps.status(index) == AP_GPS::NO_GPS) {
+            continue;
+        }
+
+        const auto &integrity = gps.get_gnss_integrity(index);
+        mavlink_msg_gnss_integrity_send(
+            chan,
+            index,                          // id: receiver instance
+            integrity.system_errors,
+            integrity.authentication_state,
+            integrity.jamming_state,
+            integrity.spoofing_state,
+            GPS_RAIM_STATE_UNKNOWN,         // RAIM not available
+            UINT16_MAX,                     // raim_hfom: not available
+            UINT16_MAX,                     // raim_vfom: not available
+            UINT8_MAX,                      // corrections_quality: not available
+            UINT8_MAX,                      // system_status_summary: not available
+            UINT8_MAX,                      // gnss_signal_quality: not available
+            UINT8_MAX);                     // post_processing_quality: not available
+
+        // Only send one msg per call
+        last_gnss_integrity_idx = index;
+        return;
+    }
+}
+#endif // AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
 
 #if AP_AHRS_ENABLED
 void GCS_MAVLINK::send_ahrs()
@@ -6215,7 +6253,14 @@ bool GCS_MAVLINK::try_send_message(const enum ap_message id)
         AP::gps().send_mavlink_gps_rtk(chan, 1);
         break;
 #endif
+#if AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
+    case MSG_GNSS_INTEGRITY:
+        CHECK_PAYLOAD_SIZE(GNSS_INTEGRITY);
+        send_gnss_integrity();
+        break;
+#endif  // AP_GPS_GNSS_INTEGRITY_SENDING_ENABLED
 #endif  // AP_GPS_ENABLED
+
 #if AP_AHRS_ENABLED
     case MSG_LOCAL_POSITION:
         CHECK_PAYLOAD_SIZE(LOCAL_POSITION_NED);
