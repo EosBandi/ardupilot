@@ -469,6 +469,7 @@ BUILD_OPTIONS = [
     Feature('GPS Drivers', 'SIRF', 'AP_GPS_SIRF_ENABLED', 'Enable SiRF GPS', 0, None),
     Feature('GPS Drivers', 'DroneCAN_GPS_Out', 'AP_DRONECAN_SEND_GPS', 'Enable Sending GPS data from Autopilot', 0, "DroneCAN"),  # noqa:401
     Feature('GPS Drivers', 'GPS_Blending', 'AP_GPS_BLENDED_ENABLED', 'Enable GPS Blending', 0, None),
+    Feature('GPS Drivers', 'DRONECAN_GPS_INTEGRITY', 'AP_GPS_DRONECAN_INTEGRITY_ENABLED', 'Enable receiving GNSS integrity state from DroneCAN GPS', 0, 'DroneCAN'),  # noqa
     Feature('GPS Drivers', 'GPS Debug Logging', 'AP_GPS_DEBUG_LOGGING_ENABLED', 'Enable GPS Debug logging', 0, None),
 
 
