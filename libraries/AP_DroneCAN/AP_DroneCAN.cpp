@@ -1194,6 +1194,18 @@ void AP_DroneCAN::gnss_send_fix()
         }
 
         gnss_status.broadcast(pkt_status);
+
+        /*
+        send Integrity packet
+        */
+        const auto &integ = gps.get_gnss_integrity(gps.primary_sensor());
+        ardupilot_gnss_Integrity pkt_integrity {};
+        pkt_integrity.system_errors        = integ.system_errors;
+        pkt_integrity.jamming_state        = integ.jamming_state;
+        pkt_integrity.spoofing_state       = integ.spoofing_state;
+        pkt_integrity.authentication_state = integ.authentication_state;
+
+        gnss_integrity.broadcast(pkt_integrity);
     }
 }
 
