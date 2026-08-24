@@ -35,6 +35,10 @@
 
 #define GPS_PPS_EMULATION 0
 
+// the integrity state is reset to UNKNOWN if the node stops sending
+// ardupilot.gnss.Integrity (nominally sent at 1Hz) for this long
+#define GPS_DRONECAN_INTEGRITY_TIMEOUT_MS 3000
+
 extern const AP_HAL::HAL& hal;
 
 #define GPS_UAVCAN_DEBUGGING 0
@@ -110,6 +114,12 @@ void AP_GPS_DroneCAN::subscribe_msgs(AP_DroneCAN* ap_dronecan)
     if (Canard::allocate_sub_arg_callback(ap_dronecan, &handle_status_msg_trampoline, ap_dronecan->get_driver_index()) == nullptr) {
         AP_BoardConfig::allocation_error("status_sub");
     }
+
+#if AP_GPS_DRONECAN_INTEGRITY_ENABLED
+    if (Canard::allocate_sub_arg_callback(ap_dronecan, &handle_integrity_msg_trampoline, ap_dronecan->get_driver_index()) == nullptr) {
+        AP_BoardConfig::allocation_error("integrity_sub");
+    }
+#endif
 #if GPS_MOVING_BASELINE
     if (Canard::allocate_sub_arg_callback(ap_dronecan, &handle_moving_baseline_msg_trampoline, ap_dronecan->get_driver_index()) == nullptr) {
         AP_BoardConfig::allocation_error("moving_baseline_sub");
@@ -559,6 +569,22 @@ void AP_GPS_DroneCAN::handle_status_msg(const ardupilot_gnss_Status& msg)
     }
 }
 
+#if AP_GPS_DRONECAN_INTEGRITY_ENABLED
+void AP_GPS_DroneCAN::handle_integrity_msg(const ardupilot_gnss_Integrity& msg)
+{
+    WITH_SEMAPHORE(sem);
+
+    // the DSDL type is defined to carry the MAVLink GNSS_INTEGRITY
+    // enum/bitmask values, so they are stored without translation. They
+    // reach the frontend state with the next Fix2 message (see read())
+    interim_state.integrity.system_errors        = msg.system_errors;
+    interim_state.integrity.jamming_state        = msg.jamming_state;
+    interim_state.integrity.spoofing_state       = msg.spoofing_state;
+    interim_state.integrity.authentication_state = msg.authentication_state;
+    last_integrity_ms = AP_HAL::millis();
+}
+#endif  // AP_GPS_DRONECAN_INTEGRITY_ENABLED
+
 #if GPS_MOVING_BASELINE
 /*
   handle moving baseline data.
@@ -662,6 +688,18 @@ void AP_GPS_DroneCAN::handle_status_msg_trampoline(AP_DroneCAN *ap_dronecan, con
     }
 }
 
+#if AP_GPS_DRONECAN_INTEGRITY_ENABLED
+void AP_GPS_DroneCAN::handle_integrity_msg_trampoline(AP_DroneCAN *ap_dronecan, const CanardRxTransfer& transfer, const ardupilot_gnss_Integrity& msg)
+{
+    WITH_SEMAPHORE(_sem_registry);
+
+    AP_GPS_DroneCAN* driver = get_dronecan_backend(ap_dronecan, transfer.source_node_id);
+    if (driver != nullptr) {
+        driver->handle_integrity_msg(msg);
+    }
+}
+#endif  // AP_GPS_DRONECAN_INTEGRITY_ENABLED
+
 #if GPS_MOVING_BASELINE
 // Moving Baseline msg trampoline
 void AP_GPS_DroneCAN::handle_moving_baseline_msg_trampoline(AP_DroneCAN *ap_dronecan, const CanardRxTransfer& transfer, const ardupilot_gnss_MovingBaselineData& msg)
@@ -733,6 +771,19 @@ bool AP_GPS_DroneCAN::read(void)
     WITH_SEMAPHORE(sem);
 
     send_rtcm();
+
+#if AP_GPS_DRONECAN_INTEGRITY_ENABLED
+    // the integrity state is only meaningful while the node keeps
+    // sending it; reset to UNKNOWN (all zero) if it stops. This is done
+    // before the interim_state copy below so a stale state can never be
+    // published after the timeout. Nodes that never send the message
+    // leave last_integrity_ms at 0 and the state at UNKNOWN
+    if (last_integrity_ms != 0 &&
+        AP_HAL::millis() - last_integrity_ms > GPS_DRONECAN_INTEGRITY_TIMEOUT_MS) {
+        interim_state.integrity = {};
+        last_integrity_ms = 0;
+    }
+#endif
 
     if (_new_data) {
         _new_data = false;
