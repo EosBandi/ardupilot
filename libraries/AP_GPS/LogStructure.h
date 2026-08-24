@@ -6,6 +6,7 @@
 #define LOG_IDS_FROM_GPS                        \
     LOG_GPS_MSG,                                \
     LOG_GPA_MSG,                                \
+    LOG_GPJ_MSG,                                \
     LOG_GPS_RAW_MSG,                            \
     LOG_GPS_RAWH_MSG,                           \
     LOG_GPS_RAWS_MSG,                           \
@@ -81,6 +82,24 @@ struct PACKED log_GPA {
     int32_t  alt_ellipsoid;
     uint16_t rtcm_fragments_used;
     uint16_t rtcm_fragments_discarded;
+};
+
+// @LoggerMessage: GPJ
+// @Description: GNSS integrity (jamming/spoofing) information
+// @Field: TimeUS: Time since system startup
+// @Field: I: GPS instance number
+// @Field: Jam: jamming state (MAVLink GPS_JAMMING_STATE; 0 unknown, 1 ok, 2 mitigated, 3 detected)
+// @Field: Spoof: spoofing state (MAVLink GPS_SPOOFING_STATE; 0 unknown, 1 ok, 2 mitigated, 3 detected)
+// @Field: Auth: signal authentication state (MAVLink GPS_AUTHENTICATION_STATE)
+// @Field: SysErr: receiver system error flags (MAVLink GPS_SYSTEM_ERROR_FLAGS)
+struct PACKED log_GPJ {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;
+    uint8_t  instance;
+    uint8_t  jamming_state;
+    uint8_t  spoofing_state;
+    uint8_t  authentication_state;
+    uint32_t system_errors;
 };
 
 /*
@@ -208,6 +227,8 @@ struct PACKED log_GPS_RAWS {
       "GPS",  "QBBIHBcLLeffffB", "TimeUS,I,Status,GMS,GWk,NSats,HDop,Lat,Lng,Alt,Spd,GCrs,VZ,Yaw,U", "s#-s-S-DUmnhnh-", "F--C-0BGGB000--" , true }, \
     { LOG_GPA_MSG,  sizeof(log_GPA), \
       "GPA",  "QBCCCCfBIHeHH", "TimeUS,I,VDop,HAcc,VAcc,SAcc,YAcc,VV,SMS,Delta,AEl,RTCMFU,RTCMFD", "s#-mmnd-ssm--", "F-BBBB0-CCB--" , true }, \
+    { LOG_GPJ_MSG,  sizeof(log_GPJ), \
+      "GPJ",  "QBBBBI", "TimeUS,I,Jam,Spoof,Auth,SysErr", "s#----", "F-----" , true }, \
     { LOG_GPS_UBX1_MSG, sizeof(log_Ubx1), \
       "UBX1", "QBHBBHI",  "TimeUS,Instance,noisePerMS,jamInd,aPower,agcCnt,config", "s#-----", "F------"  , true }, \
     { LOG_GPS_UBX2_MSG, sizeof(log_Ubx2), \

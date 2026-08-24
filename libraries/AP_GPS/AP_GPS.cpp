@@ -1933,6 +1933,19 @@ void AP_GPS::Write_GPS(uint8_t i)
         rtcm_fragments_discarded: rtcm_stats.fragments_discarded
     };
     AP::logger().WriteBlock(&pkt2, sizeof(pkt2));
+
+    /* write GNSS integrity state */
+    const auto &integ = state[i].integrity;
+    const struct log_GPJ pkt3 {
+        LOG_PACKET_HEADER_INIT(LOG_GPJ_MSG),
+        time_us              : time_us,
+        instance             : i,
+        jamming_state        : integ.jamming_state,
+        spoofing_state       : integ.spoofing_state,
+        authentication_state : integ.authentication_state,
+        system_errors        : integ.system_errors
+    };
+    AP::logger().WriteBlock(&pkt3, sizeof(pkt3));
 }
 #endif
 
