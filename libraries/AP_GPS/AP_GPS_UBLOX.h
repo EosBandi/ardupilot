@@ -107,7 +107,8 @@
 #define CONFIG_F9            (1<<19)
 #define CONFIG_M10           (1<<20)
 #define CONFIG_L5            (1<<21)
-#define CONFIG_LAST          (1<<22) // this must always be the last bit
+#define CONFIG_RATE_MON_RF   (1<<22)
+#define CONFIG_LAST          (1<<23) // this must always be the last bit
 
 #define CONFIG_REQUIRED_INITIAL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_VELNED)
 
@@ -493,7 +494,6 @@ private:
         char extension[30*UBLOX_MAX_EXTENSIONS]; // extensions are not enabled
     };
 
-#if AP_GPS_UBLOX_CFGV2_ENABLED
     // UBX-MON-RF block (repeated nBlocks times after ubx_mon_rf header)
     struct PACKED ubx_mon_rf_block {
         uint8_t  blockId;        // 0
@@ -518,7 +518,6 @@ private:
         uint8_t reserved0[2];    // 2..3
         ubx_mon_rf_block blocks[2]; // provision for up to 2 RF blocks
     };
-#endif
     struct PACKED ubx_nav_svinfo_header {
         uint32_t itow;
         uint8_t numCh;
@@ -643,9 +642,7 @@ private:
         ubx_mon_hw_68 mon_hw_68;
         ubx_mon_hw2 mon_hw2;
         ubx_mon_ver mon_ver;
-#if AP_GPS_UBLOX_CFGV2_ENABLED
         ubx_mon_rf mon_rf;
-#endif
         ubx_cfg_tp5 nav_tp5;
 #if UBLOX_GNSS_SETTINGS
         ubx_cfg_gnss gnss;
@@ -718,8 +715,8 @@ private:
 #endif
         MSG_MON_HW = 0x09,
         MSG_MON_HW2 = 0x0B,
-#if AP_GPS_UBLOX_CFGV2_ENABLED
         MSG_MON_RF = 0x38,
+#if AP_GPS_UBLOX_CFGV2_ENABLED
         MSG_MON_COMMS = 0x36,
 #endif
         MSG_MON_VER = 0x04,
@@ -814,6 +811,7 @@ private:
         STEP_DOP,
         STEP_MON_HW,
         STEP_MON_HW2,
+        STEP_MON_RF,
         STEP_RAW,
         STEP_RAWX,
         STEP_VERSION,
@@ -906,10 +904,20 @@ private:
     void unexpected_message(void);
     void log_mon_hw(void);
     void log_mon_hw2(void);
-#if HAL_LOGGING_ENABLED && AP_GPS_UBLOX_CFGV2_ENABLED
+#if HAL_LOGGING_ENABLED
     void log_mon_rf(void);
 #endif
     void log_tim_tm2(void);
+
+    // GNSS integrity support
+    void update_mon_rf(void);
+    static uint8_t jamming_state_to_mavlink(uint8_t ubx_jamming_state);
+    static uint8_t spoofing_state_to_mavlink(uint8_t ubx_spoof_det_state);
+    // MON-RF is available on F9/M9 and newer generations
+    bool supports_mon_rf(void) const {
+        return _hardware_generation >= UBLOX_F9 &&
+               _hardware_generation != UBLOX_UNKNOWN_HARDWARE_GENERATION;
+    }
     void log_rxm_raw(const struct ubx_rxm_raw &raw);
     void log_rxm_rawx(const struct ubx_rxm_rawx &raw);
 
