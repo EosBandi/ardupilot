@@ -47,6 +47,14 @@
 #endif
 #include <AP_AHRS/AP_AHRS.h>
 
+#ifndef AP_PERIPH_GPS_INTEGRITY_ENABLED
+#ifdef HAL_PERIPH_ENABLE_GPS
+#define AP_PERIPH_GPS_INTEGRITY_ENABLED 1
+#else
+#define AP_PERIPH_GPS_INTEGRITY_ENABLED 0
+#endif
+#endif
+
 #ifdef HAL_PERIPH_ENABLE_RELAY
 #ifdef HAL_PERIPH_ENABLE_PWM_HARDPOINT
     #error "Relay and PWM_HARDPOINT both use hardpoint message"
@@ -455,6 +463,10 @@ public:
 #ifdef HAL_PERIPH_ENABLE_GPS
     uint32_t last_gps_update_ms;
     uint32_t last_gps_yaw_ms;
+#if AP_PERIPH_GPS_INTEGRITY_ENABLED
+    uint32_t last_gnss_integrity_ms;
+    AP_GPS::GPS_State::GNSSIntegrity last_gnss_integrity;
+#endif
 #endif
     uint32_t last_relposheading_ms;
 #ifdef HAL_PERIPH_ENABLE_BARO

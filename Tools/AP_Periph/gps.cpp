@@ -214,6 +214,38 @@ void AP_Periph_FW::can_gps_update(void)
 
     }
 
+#if AP_PERIPH_GPS_INTEGRITY_ENABLED
+    // send the GNSS integrity (jamming/spoofing/authentication) state at
+    // 1Hz, and immediately when it changes
+    {
+        const auto &integ = gps.get_gnss_integrity(gps.primary_sensor());
+        const uint32_t now_ms = AP_HAL::millis();
+        const bool changed =
+            integ.system_errors        != last_gnss_integrity.system_errors ||
+            integ.jamming_state        != last_gnss_integrity.jamming_state ||
+            integ.spoofing_state       != last_gnss_integrity.spoofing_state ||
+            integ.authentication_state != last_gnss_integrity.authentication_state;
+        if (changed || now_ms - last_gnss_integrity_ms >= 1000) {
+            last_gnss_integrity_ms = now_ms;
+            last_gnss_integrity = integ;
+
+            ardupilot_gnss_Integrity pkt {};
+            pkt.system_errors        = integ.system_errors;
+            pkt.jamming_state        = integ.jamming_state;
+            pkt.spoofing_state       = integ.spoofing_state;
+            pkt.authentication_state = integ.authentication_state;
+
+            uint8_t buffer[ARDUPILOT_GNSS_INTEGRITY_MAX_SIZE];
+            const uint16_t total_size = ardupilot_gnss_Integrity_encode(&pkt, buffer, !canfdout());
+            canard_broadcast(ARDUPILOT_GNSS_INTEGRITY_SIGNATURE,
+                            ARDUPILOT_GNSS_INTEGRITY_ID,
+                            CANARD_TRANSFER_PRIORITY_LOW,
+                            &buffer[0],
+                            total_size);
+        }
+    }
+#endif  // AP_PERIPH_GPS_INTEGRITY_ENABLED
+
     // send Heading message if we are not sending RelPosHeading messages and have yaw
     if (gps.have_gps_yaw() && last_relposheading_ms == 0) {
         float yaw_deg, yaw_acc_deg;
