@@ -15,7 +15,9 @@ public:
     void publish(const GPS_Data *d) override;
 
 private:
-    void send_ubx(uint8_t msgid, uint8_t *buf, uint16_t size);
+    uint32_t _next_mon_send_ms;
+
+    void send_ubx(uint8_t msgid, uint8_t *buf, uint16_t size, uint8_t msgclass=0x01);
 };
 
 };

@@ -11,15 +11,14 @@ using namespace SITL;
 /*
   send a UBLOX GPS message
  */
-void GPS_UBlox::send_ubx(uint8_t msgid, uint8_t *buf, uint16_t size)
+void GPS_UBlox::send_ubx(uint8_t msgid, uint8_t *buf, uint16_t size, uint8_t msgclass)
 {
     const uint8_t PREAMBLE1 = 0xb5;
     const uint8_t PREAMBLE2 = 0x62;
-    const uint8_t CLASS_NAV = 0x1;
     uint8_t hdr[6], chk[2];
     hdr[0] = PREAMBLE1;
     hdr[1] = PREAMBLE2;
-    hdr[2] = CLASS_NAV;
+    hdr[2] = msgclass;
     hdr[3] = msgid;
     hdr[4] = size & 0xFF;
     hdr[5] = size >> 8;
@@ -54,7 +53,7 @@ void GPS_UBlox::publish(const GPS_Data *d)
         uint8_t     fix_type;
         uint8_t     fix_status;
         uint8_t     differential_status;
-        uint8_t     res;
+        uint8_t     flags2;             // bits 4:3 are spoofDetState
         uint32_t    time_to_first_fix;
         uint32_t    uptime;             // milliseconds
     } status {};
@@ -202,7 +201,8 @@ void GPS_UBlox::publish(const GPS_Data *d)
     status.fix_type = d->have_lock?3:0;
     status.fix_status = d->have_lock?1:0;
     status.differential_status = 0;
-    status.res = 0;
+    // spoofDetState: 2 (spoofing indicated) when simulated, else 1 (none indicated)
+    status.flags2 = (_sitl->gps_spoof[instance] == 1 ? 2U : 1U) << 3;
     status.time_to_first_fix = 0;
     status.uptime = AP_HAL::millis();
 
@@ -298,6 +298,82 @@ void GPS_UBlox::publish(const GPS_Data *d)
     send_ubx(MSG_PVT,    (uint8_t*)&pvt, sizeof(pvt));
     if (_sitl->gps_hdg_enabled[instance] > SITL::SIM::GPS_HEADING_NONE) {
         send_ubx(MSG_RELPOSNED,    (uint8_t*)&relposned, sizeof(relposned));
+    }
+
+    // send MON-HW (or MON-RF for F9P) at 1Hz with the simulated jamming state
+    {
+        const uint32_t now_ms = AP_HAL::millis();
+        if ((int32_t)(now_ms - _next_mon_send_ms) >= 0) {
+            _next_mon_send_ms = now_ms + 1000;
+            const bool is_f9p = (_sitl->gps_options[instance] & static_cast<int32_t>(SITL::SIM::GPSOptions::UBX_IS_F9P)) != 0;
+            const bool jammed = _sitl->gps_jam[instance] == 1;
+            // u-blox jammingState: 1 = ok, 3 = critical
+            const uint8_t jamming_state = jammed ? 3 : 1;
+            const uint8_t jam_ind = jammed ? 200 : 20;
+            const uint16_t noise_per_ms = jammed ? 200 : 50;
+            const uint8_t CLASS_MON = 0x0a;
+            if (is_f9p) {
+                const uint8_t MSG_MON_RF = 0x38;
+                struct PACKED ubx_mon_rf {
+                    uint8_t  version;
+                    uint8_t  nBlocks;
+                    uint8_t  reserved0[2];
+                    // single repeated block
+                    uint8_t  blockId;
+                    uint8_t  flags;          // bits 1:0 are jammingState
+                    uint8_t  antStatus;
+                    uint8_t  antPower;
+                    uint32_t postStatus;
+                    uint8_t  reserved1[4];
+                    uint16_t noisePerMS;
+                    uint16_t agcCnt;
+                    uint8_t  cwSuppression;
+                    int8_t   ofsI;
+                    uint8_t  magI;
+                    int8_t   ofsQ;
+                    uint8_t  magQ;
+                    uint8_t  rfBlockGnssBand;
+                    uint8_t  reserved2[2];
+                } mon_rf {};
+                mon_rf.version = 0;
+                mon_rf.nBlocks = 1;
+                mon_rf.flags = jamming_state;
+                mon_rf.antStatus = 2;   // OK
+                mon_rf.antPower = 1;    // on
+                mon_rf.noisePerMS = noise_per_ms;
+                mon_rf.agcCnt = 4000;
+                mon_rf.cwSuppression = jam_ind;
+                send_ubx(MSG_MON_RF, (uint8_t*)&mon_rf, sizeof(mon_rf), CLASS_MON);
+            } else {
+                const uint8_t MSG_MON_HW = 0x09;
+                struct PACKED ubx_mon_hw_60 {
+                    uint32_t pinSel;
+                    uint32_t pinBank;
+                    uint32_t pinDir;
+                    uint32_t pinVal;
+                    uint16_t noisePerMS;
+                    uint16_t agcCnt;
+                    uint8_t aStatus;
+                    uint8_t aPower;
+                    uint8_t flags;          // bits 3:2 are jammingState
+                    uint8_t reserved1;
+                    uint32_t usedMask;
+                    uint8_t VP[17];
+                    uint8_t jamInd;
+                    uint16_t reserved3;
+                    uint32_t pinIrq;
+                    uint32_t pullH;
+                    uint32_t pullL;
+                } mon_hw {};
+                mon_hw.noisePerMS = noise_per_ms;
+                mon_hw.agcCnt = 4000;
+                mon_hw.aStatus = 2;     // antenna OK
+                mon_hw.aPower = 1;      // antenna on
+                mon_hw.flags = jamming_state << 2;
+                mon_hw.jamInd = jam_ind;
+                send_ubx(MSG_MON_HW, (uint8_t*)&mon_hw, sizeof(mon_hw), CLASS_MON);
+            }
+        }
     }
 
     if (gps_tow.ms > _next_nav_sv_info_time) {

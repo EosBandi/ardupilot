@@ -928,6 +928,34 @@ const AP_Param::GroupInfo SIM::var_gps[] = {
     // @Values: 0:Disabled, 1:Enabled
     AP_GROUPINFO("GPS2_JAM",      49, SIM,  gps_jam[1], 0),
 
+    // @Param: GPS_SPOOF
+    // @DisplayName: GPS spoofing indication enable
+    // @Description: Enable simulated GPS spoofing indication (u-blox NAV-STATUS spoofDetState reports spoofing indicated)
+    // @User: Advanced
+    // @Values: 0:Disabled, 1:Enabled
+    AP_GROUPINFO("GPS_SPOOF",     17, SIM,  gps_spoof[0], 0),
+
+    // @Param: GPS_OPTIONS
+    // @DisplayName: GPS Options
+    // @Description: Options for the simulated u-blox GPS
+    // @User: Advanced
+    // @Bitmask: 0:UBlox GPS is F9P
+    AP_GROUPINFO("GPS_OPTIONS",   18, SIM,  gps_options[0], 0),
+
+    // @Param: GPS2_SPOOF
+    // @DisplayName: GPS spoofing indication enable
+    // @Description: Enable simulated GPS spoofing indication (u-blox NAV-STATUS spoofDetState reports spoofing indicated)
+    // @User: Advanced
+    // @Values: 0:Disabled, 1:Enabled
+    AP_GROUPINFO("GPS2_SPOOF",    50, SIM,  gps_spoof[1], 0),
+
+    // @Param: GPS2_OPTIONS
+    // @DisplayName: GPS Options
+    // @Description: Options for the simulated u-blox GPS
+    // @User: Advanced
+    // @Bitmask: 0:UBlox GPS is F9P
+    AP_GROUPINFO("GPS2_OPTIONS",  51, SIM,  gps_options[1], 0),
+
     AP_GROUPEND
 };
 #endif  // HAL_SIM_GPS_ENABLED
