@@ -939,7 +939,7 @@ const AP_Param::GroupInfo SIM::var_gps[] = {
     // @DisplayName: GPS Options
     // @Description: Options for the simulated u-blox GPS
     // @User: Advanced
-    // @Bitmask: 0:UBlox GPS is F9P
+    // @Bitmask: 0:UBlox GPS is F9P, 1:UBlox reports jamming and spoofing via UBX-SEC-SIG
     AP_GROUPINFO("GPS_OPTIONS",   18, SIM,  gps_options[0], 0),
 
     // @Param: GPS2_SPOOF
@@ -953,7 +953,7 @@ const AP_Param::GroupInfo SIM::var_gps[] = {
     // @DisplayName: GPS Options
     // @Description: Options for the simulated u-blox GPS
     // @User: Advanced
-    // @Bitmask: 0:UBlox GPS is F9P
+    // @Bitmask: 0:UBlox GPS is F9P, 1:UBlox reports jamming and spoofing via UBX-SEC-SIG
     AP_GROUPINFO("GPS2_OPTIONS",  51, SIM,  gps_options[1], 0),
 
     AP_GROUPEND

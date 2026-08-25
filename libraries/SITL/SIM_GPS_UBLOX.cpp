@@ -300,15 +300,18 @@ void GPS_UBlox::publish(const GPS_Data *d)
         send_ubx(MSG_RELPOSNED,    (uint8_t*)&relposned, sizeof(relposned));
     }
 
+    const bool is_f9p = (_sitl->gps_options[instance] & static_cast<int32_t>(SITL::SIM::GPSOptions::UBX_IS_F9P)) != 0;
+
     // send MON-HW (or MON-RF for F9P) at 1Hz with the simulated jamming state
     {
         const uint32_t now_ms = AP_HAL::millis();
         if ((int32_t)(now_ms - _next_mon_send_ms) >= 0) {
             _next_mon_send_ms = now_ms + 1000;
-            const bool is_f9p = (_sitl->gps_options[instance] & static_cast<int32_t>(SITL::SIM::GPSOptions::UBX_IS_F9P)) != 0;
             const bool jammed = _sitl->gps_jam[instance] == 1;
-            // u-blox jammingState: 1 = ok, 3 = critical
-            const uint8_t jamming_state = jammed ? 3 : 1;
+            // u-blox jammingState: 0 = unknown or interference monitor disabled,
+            // 1 = ok, 3 = critical. Firmware with UBX-SEC-SIG reports jamming
+            // only there and leaves the MON-RF/MON-HW field at 0
+            const uint8_t jamming_state = (!_itfm_enabled || sec_sig_firmware()) ? 0 : (jammed ? 3 : 1);
             const uint8_t jam_ind = jammed ? 200 : 20;
             const uint16_t noise_per_ms = jammed ? 200 : 50;
             const uint8_t CLASS_MON = 0x0a;
@@ -373,10 +376,28 @@ void GPS_UBlox::publish(const GPS_Data *d)
                 mon_hw.jamInd = jam_ind;
                 send_ubx(MSG_MON_HW, (uint8_t*)&mon_hw, sizeof(mon_hw), CLASS_MON);
             }
+            if (sec_sig_firmware() && _sec_sig_rate != 0) {
+                // UBX-SEC-SIG v2 with the simulated jamming and spoofing states
+                const uint8_t CLASS_SEC = 0x27;
+                const uint8_t MSG_SEC_SIG = 0x09;
+                struct PACKED ubx_sec_sig_v2 {
+                    uint8_t version;
+                    uint8_t sigSecFlags;     // jamDetEnabled[0] jammingState[2:1] spfDetEnabled[3] spoofingState[5:4]
+                    uint8_t reserved0;
+                    uint8_t jamNumCentFreqs;
+                } sec_sig {};
+                sec_sig.version = 2;
+                const uint8_t jam_state = jammed ? 3 : 1;   // 1 = no jamming, 3 = critical
+                const uint8_t spf_state = (_sitl->gps_spoof[instance] == 1) ? 2 : 1;
+                sec_sig.sigSecFlags = 1U | (jam_state << 1) | (1U << 3) | (spf_state << 4);
+                send_ubx(MSG_SEC_SIG, (uint8_t*)&sec_sig, sizeof(sec_sig), CLASS_SEC);
+            }
         }
     }
 
-    if (gps_tow.ms > _next_nav_sv_info_time) {
+    // F9 firmware does not support NAV-SVINFO; the driver takes the
+    // hardware generation from it, so a simulated F9 must not send it
+    if (!is_f9p && gps_tow.ms > _next_nav_sv_info_time) {
         svinfo.itow = gps_tow.ms;
         svinfo.numCh = 32;
         svinfo.globalFlags = 4; // u-blox 8/M8
@@ -394,6 +415,271 @@ void GPS_UBlox::publish(const GPS_Data *d)
         }
         send_ubx(MSG_SVINFO, (uint8_t*)&svinfo, sizeof(svinfo));
         _next_nav_sv_info_time = gps_tow.ms + 10000; // 10 second delay
+    }
+}
+
+bool GPS_UBlox::sec_sig_firmware() const
+{
+    return (_sitl->gps_options[instance] & static_cast<int32_t>(SITL::SIM::GPSOptions::UBX_SEC_SIG)) != 0;
+}
+
+void GPS_UBlox::send_ack(uint8_t cls, uint8_t id, bool ack)
+{
+    uint8_t payload[2] { cls, id };
+    send_ubx(ack ? 0x01 : 0x00, payload, sizeof(payload), 0x05);
+}
+
+// value length of a CFG key from its size bits (30:28)
+static uint8_t ubx_key_size(uint32_t key)
+{
+    switch ((key >> 28) & 0x07U) {
+    case 1:
+    case 2:
+        return 1;
+    case 3:
+        return 2;
+    case 4:
+        return 4;
+    case 5:
+        return 8;
+    default:
+        return 0;
+    }
+}
+
+/*
+  parse UBX messages from the autopilot so the simulated receiver honours
+  the configuration that matters for GNSS integrity reporting: the
+  jamming/interference monitor enable and the UBX-SEC-SIG output rate
+ */
+void GPS_UBlox::update_read()
+{
+    char c;
+    while (read_from_autopilot(&c, 1) == 1) {
+        const uint8_t b = (uint8_t)c;
+        switch (_rx_step) {
+        case 0:
+            if (b == 0xB5) {
+                _rx_step = 1;
+            }
+            break;
+        case 1:
+            _rx_step = (b == 0x62) ? 2 : 0;
+            break;
+        case 2:
+            _rx_class = b;
+            _rx_ck_a = b;
+            _rx_ck_b = b;
+            _rx_step = 3;
+            break;
+        case 3:
+            _rx_id = b;
+            _rx_ck_a += b;
+            _rx_ck_b += _rx_ck_a;
+            _rx_step = 4;
+            break;
+        case 4:
+            _rx_len = b;
+            _rx_ck_a += b;
+            _rx_ck_b += _rx_ck_a;
+            _rx_step = 5;
+            break;
+        case 5:
+            _rx_len |= (uint16_t)b << 8;
+            _rx_ck_a += b;
+            _rx_ck_b += _rx_ck_a;
+            _rx_count = 0;
+            if (_rx_len > sizeof(_rx_buf)) {
+                _rx_step = 0;   // too big for us, resync
+            } else {
+                _rx_step = (_rx_len == 0) ? 7 : 6;
+            }
+            break;
+        case 6:
+            _rx_buf[_rx_count++] = b;
+            _rx_ck_a += b;
+            _rx_ck_b += _rx_ck_a;
+            if (_rx_count == _rx_len) {
+                _rx_step = 7;
+            }
+            break;
+        case 7:
+            _rx_step = (b == _rx_ck_a) ? 8 : 0;
+            break;
+        case 8:
+            _rx_step = 0;
+            if (b == _rx_ck_b) {
+                handle_ubx_in();
+            }
+            break;
+        default:
+            _rx_step = 0;
+            break;
+        }
+    }
+}
+
+void GPS_UBlox::handle_ubx_in()
+{
+    const uint8_t CLASS_CFG = 0x06;
+    const uint8_t MSG_CFG_ITFM = 0x39;
+    const uint8_t MSG_CFG_VALSET = 0x8A;
+    const uint8_t MSG_CFG_VALGET = 0x8B;
+    const uint32_t KEY_ITFM_ENABLE = 0x1041000DU;
+    const uint32_t KEY_SEC_SIG_UART1 = 0x20910635U;
+    const uint32_t KEY_SEC_SIG_UART2 = 0x20910636U;
+
+    const uint8_t CLASS_MON = 0x0A;
+    const uint8_t MSG_MON_VER = 0x04;
+    const uint8_t MSG_CFG_PRT = 0x00;
+    const bool is_f9p = (_sitl->gps_options[instance] & static_cast<int32_t>(SITL::SIM::GPSOptions::UBX_IS_F9P)) != 0;
+
+    if (_rx_class == CLASS_MON && _rx_id == MSG_MON_VER && _rx_len == 0) {
+        // version poll: identify as F9 (ZED-F9P) or M8 so the driver picks
+        // the matching configuration path
+        struct PACKED {
+            char swVersion[30];
+            char hwVersion[10];
+            char extension[2][30];
+        } ver {};
+        if (is_f9p) {
+            strncpy(ver.swVersion, "EXT CORE 1.00 (SITL)", sizeof(ver.swVersion));
+            strncpy(ver.hwVersion, "00190000", sizeof(ver.hwVersion));
+            strncpy(ver.extension[0], "MOD=ZED-F9P", sizeof(ver.extension[0]));
+            strncpy(ver.extension[1], "PROTVER=27.11", sizeof(ver.extension[1]));
+            send_ubx(MSG_MON_VER, (uint8_t*)&ver, sizeof(ver), CLASS_MON);
+        } else {
+            strncpy(ver.swVersion, "ROM CORE 3.01 (107888)", sizeof(ver.swVersion));
+            strncpy(ver.hwVersion, "00080000", sizeof(ver.hwVersion));
+            send_ubx(MSG_MON_VER, (uint8_t*)&ver, 40, CLASS_MON);
+        }
+        return;
+    }
+    if (_rx_class != CLASS_CFG) {
+        return;
+    }
+    switch (_rx_id) {
+    case MSG_CFG_PRT:
+        if (_rx_len == 0) {
+            // port poll: we are UART1. Without this reply the driver's
+            // configuration state machine never advances past its first step
+            struct PACKED {
+                uint8_t portID;
+                uint8_t reserved1;
+                uint16_t txReady;
+                uint32_t mode;
+                uint32_t baudRate;
+                uint16_t inProtoMask;
+                uint16_t outProtoMask;
+                uint16_t flags;
+                uint8_t reserved2[2];
+            } prt {};
+            prt.portID = 1;
+            prt.mode = 0x08D0;      // 8N1
+            prt.baudRate = 230400;
+            prt.inProtoMask = 0x07;
+            prt.outProtoMask = 0x03;
+            send_ubx(MSG_CFG_PRT, (uint8_t*)&prt, sizeof(prt), CLASS_CFG);
+        }
+        break;
+    case MSG_CFG_ITFM:
+        if (_rx_len == 0) {
+            // poll: reply with the current configuration
+            struct PACKED {
+                uint32_t config;
+                uint32_t config2;
+            } itfm;
+            itfm.config = 3U | (15U << 4) | (0x16B156U << 9) | (_itfm_enabled ? (1U << 31) : 0U);
+            itfm.config2 = 0x31EU;
+            send_ubx(MSG_CFG_ITFM, (uint8_t*)&itfm, sizeof(itfm), CLASS_CFG);
+        } else if (_rx_len == 8) {
+            uint32_t config;
+            memcpy(&config, _rx_buf, sizeof(config));
+            _itfm_enabled = (config & (1U << 31)) != 0;
+            send_ack(CLASS_CFG, MSG_CFG_ITFM, true);
+        }
+        break;
+
+    case MSG_CFG_VALSET: {
+        // version, layers, reserved[2], then key/value pairs. Only answer
+        // when a key we model is involved, other requests are ignored as before
+        bool known = false, ok = true;
+        uint16_t ofs = 4;
+        while (ofs + 4 <= _rx_len) {
+            uint32_t key;
+            memcpy(&key, &_rx_buf[ofs], sizeof(key));
+            ofs += 4;
+            const uint8_t vlen = ubx_key_size(key);
+            if (vlen == 0 || ofs + vlen > _rx_len) {
+                ok = false;
+                break;
+            }
+            uint64_t value = 0;
+            memcpy(&value, &_rx_buf[ofs], vlen);
+            ofs += vlen;
+            if (key == KEY_ITFM_ENABLE) {
+                known = true;
+                _itfm_enabled = (value & 1U) != 0;
+            } else if (key == KEY_SEC_SIG_UART1 || key == KEY_SEC_SIG_UART2) {
+                known = true;
+                if (!sec_sig_firmware()) {
+                    ok = false;   // key does not exist on this firmware
+                } else {
+                    _sec_sig_rate = (uint8_t)value;
+                }
+            }
+        }
+        if (known) {
+            send_ack(CLASS_CFG, MSG_CFG_VALSET, ok);
+        }
+        break;
+    }
+
+    case MSG_CFG_VALGET: {
+        // version, layer, position[2], then keys. Reply with the keys we
+        // model; NACK if one of them is unknown on this firmware
+        uint8_t reply[4 + (sizeof(_rx_buf) / 4) * 12] {};
+        reply[0] = 1;   // version 1 = response
+        reply[1] = _rx_len >= 2 ? _rx_buf[1] : 0;
+        uint16_t rofs = 4;
+        bool known = false, ok = true;
+        for (uint16_t ofs = 4; ofs + 4 <= _rx_len; ofs += 4) {
+            uint32_t key;
+            memcpy(&key, &_rx_buf[ofs], sizeof(key));
+            uint64_t value;
+            if (key == KEY_ITFM_ENABLE) {
+                value = _itfm_enabled ? 1U : 0U;
+            } else if ((key == KEY_SEC_SIG_UART1 || key == KEY_SEC_SIG_UART2) && sec_sig_firmware()) {
+                value = _sec_sig_rate;
+            } else if (key == KEY_SEC_SIG_UART1 || key == KEY_SEC_SIG_UART2) {
+                known = true;
+                ok = false;   // key does not exist on this firmware
+                break;
+            } else {
+                ok = false;   // not modelled
+                break;
+            }
+            known = true;
+            const uint8_t vlen = ubx_key_size(key);
+            memcpy(&reply[rofs], &key, sizeof(key));
+            rofs += 4;
+            memcpy(&reply[rofs], &value, vlen);
+            rofs += vlen;
+        }
+        if (!known) {
+            break;   // nothing we model, stay silent as before
+        }
+        if (ok) {
+            send_ubx(MSG_CFG_VALGET, reply, rofs, CLASS_CFG);
+            send_ack(CLASS_CFG, MSG_CFG_VALGET, true);
+        } else {
+            send_ack(CLASS_CFG, MSG_CFG_VALGET, false);
+        }
+        break;
+    }
+
+    default:
+        break;
     }
 }
 
