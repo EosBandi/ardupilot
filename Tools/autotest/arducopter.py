@@ -3147,6 +3147,16 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
             raise NotAchievedException("Node %u does not know parameter %s" % (nodeid, name))
         self.progress("Node %u: %s=%s" % (nodeid, name, resp.value))
 
+    def wait_gnss_integrity(self, want, timeout=30):
+        '''wait for GNSS_INTEGRITY to carry the given field values,
+        tolerating pauses in the stream (e.g. while a DroneCAN GPS times out)'''
+        tstart = self.get_sim_time()
+        while self.get_sim_time_cached() - tstart < timeout:
+            m = self.assert_receive_message('GNSS_INTEGRITY', timeout=10)
+            if self.message_has_field_values(m, want):
+                return m
+        raise NotAchievedException("GNSS_INTEGRITY did not reach %s" % want)
+
     def CANGPSIntegrity(self):
         '''GNSS_INTEGRITY sourced from a DroneCAN GPS via ardupilot.gnss.Integrity'''
         self.set_parameters({
@@ -3172,25 +3182,48 @@ class AutoTestCopter(vehicle_test_suite.TestSuite):
 
         nominal = {'id': 0, 'jamming_state': 1, 'spoofing_state': 1}
         detected = {'id': 0, 'jamming_state': 3, 'spoofing_state': 3}
+        unknown = {'id': 0, 'jamming_state': 0, 'spoofing_state': 0}
         node = self.dronecan_node()
+        # two simulated receiver generations: jammingState in MON-HW/MON-RF
+        # (only after the driver enabled the interference monitor) and newer
+        # firmware reporting jamming/spoofing in UBX-SEC-SIG only
+        # (SIM_GPS_OPTIONS bit 0 F9P + bit 1 SEC-SIG)
+        flavours = [("MON-HW + CFG-ITFM", 0), ("UBX-SEC-SIG firmware", 3)]
         try:
-            self.start_subtest("Nominal integrity state via DroneCAN")
-            self.wait_message_field_values('GNSS_INTEGRITY', nominal, timeout=60)
+            for flavour, options in flavours:
+                if options != 0:
+                    self.start_subtest("Switching periph receiver to %s" % flavour)
+                    self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_OPTIONS', options)
+                    # starve the periph GPS driver (no simulated receiver at
+                    # all) so AP_GPS times out and re-detects the receiver
+                    # with the new options
+                    self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_TYPE', 0)
+                    # the FC reports UNKNOWN 3s after the last Integrity
+                    # message; the periph driver times out too and is
+                    # re-initialised when data returns
+                    self.wait_gnss_integrity(unknown, timeout=30)
+                    self.delay_sim_time(3)
+                    self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_TYPE', 1)
 
-            self.start_subtest("Simulated jamming and spoofing on the periph")
-            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 1)
-            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 1)
-            self.wait_message_field_values('GNSS_INTEGRITY', detected, timeout=30)
-            self.assert_current_onboard_log_contains_message('GPJ')
+                self.start_subtest("Nominal integrity state via DroneCAN (%s)" % flavour)
+                self.wait_gnss_integrity(nominal, timeout=90)
 
-            self.start_subtest("Recovery")
-            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 0)
-            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 0)
-            self.wait_message_field_values('GNSS_INTEGRITY', nominal, timeout=30)
+                self.start_subtest("Simulated jamming and spoofing on the periph (%s)" % flavour)
+                self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 1)
+                self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 1)
+                self.wait_gnss_integrity(detected, timeout=30)
+                self.assert_current_onboard_log_contains_message('GPJ')
+
+                self.start_subtest("Recovery (%s)" % flavour)
+                self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 0)
+                self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 0)
+                self.wait_gnss_integrity(nominal, timeout=30)
         finally:
             # make sure the periph is left in its nominal state
             self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_JAM', 0)
             self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_SPOOF', 0)
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_OPTIONS', 0)
+            self.dronecan_periph_param_set(node, gps1_nodeid, 'SIM_GPS_TYPE', 1)
             node.close()
 
         self.set_message_rate_hz('GNSS_INTEGRITY', 0)
