@@ -39,6 +39,7 @@ static constexpr ubx_config_list config_common_uart[] = {
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART1,   RATE_DOP },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART1,    RATE_HW },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART1, RATE_STATUS_INTEGRITY },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART1,    RATE_HW },
 };
 
 static constexpr ubx_config_list config_common_uart1[] = {
@@ -48,11 +49,13 @@ static constexpr ubx_config_list config_common_uart1[] = {
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART1,   RATE_DOP },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART1,    RATE_HW },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART1, RATE_STATUS_INTEGRITY },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART1,    RATE_HW },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_PVT_UART2,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART2, 0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART2,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART2,    0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART2, 0U },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART2,    0U },
 };
 
 static constexpr ubx_config_list config_common_uart2[] = {
@@ -63,11 +66,13 @@ static constexpr ubx_config_list config_common_uart2[] = {
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART2,   RATE_DOP },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART2,    RATE_HW },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART2, RATE_STATUS_INTEGRITY },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART2,    RATE_HW },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_PVT_UART1,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_TIMEGPS_UART1, 0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_DOP_UART1,   0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_MON_RF_UART1,    0U },
     { AP::UBXConfigKey::CFG_MSGOUT_UBX_NAV_STATUS_UART1, 0U },
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART1,    0U },
 };
 
 /*
@@ -200,4 +205,21 @@ static constexpr ubx_config_list config_L5_ovrd_ena[] = {
 
 static constexpr ubx_config_list config_L5_ovrd_dis[] = {
     { AP::UBXConfigKey::CFG_SIGNAL_L5_HEALTH_OVRD, 0 },
+};
+
+/**********************************************************************
+ * GNSS integrity (legacy config path): jamming/interference monitor  *
+ * and UBX-SEC-SIG output. Applied via _configure_config_set(), so a  *
+ * receiver without the key NACKs and the config bit is cleared.      *
+ **********************************************************************/
+static constexpr ubx_config_list config_ITFM[] = {
+    { AP::UBXConfigKey::CFG_ITFM_ENABLE, 1 },
+};
+
+static constexpr ubx_config_list config_SEC_SIG_uart1[] = {
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART1, RATE_HW },
+};
+
+static constexpr ubx_config_list config_SEC_SIG_uart2[] = {
+    { AP::UBXConfigKey::CFG_MSGOUT_UBX_SEC_SIG_UART2, RATE_HW },
 };
