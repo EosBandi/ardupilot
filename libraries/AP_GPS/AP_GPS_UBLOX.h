@@ -81,6 +81,9 @@
 #define RATE_DOP 1
 #define RATE_HW 5
 #define RATE_HW2 5
+// reduced NAV-STATUS rate used once NAV-PVT is available; NAV-STATUS is
+// kept alive on spoof-detection capable receivers for spoofDetState
+#define RATE_STATUS_INTEGRITY 5
 #define RATE_TIM_TM2 1
 
 #define CONFIG_RATE_NAV      (1<<0)
@@ -105,7 +108,10 @@
 #define CONFIG_M10           (1<<19)
 #define CONFIG_L5            (1<<20)
 #define CONFIG_F9_DEBUG      (1<<21)
-#define CONFIG_LAST          (1<<22) // this must always be the last bit
+#define CONFIG_RATE_MON_RF   (1<<22)
+#define CONFIG_ITFM          (1<<23)
+#define CONFIG_SEC_SIG       (1<<24)
+#define CONFIG_LAST          (1<<25) // this must always be the last bit
 
 #define CONFIG_REQUIRED_INITIAL (CONFIG_RATE_NAV | CONFIG_RATE_POSLLH | CONFIG_RATE_STATUS | CONFIG_RATE_VELNED)
 
@@ -263,6 +269,10 @@ private:
     enum class ConfigKey : uint32_t {
         TMODE_MODE = 0x20030001,
         CFG_RATE_MEAS                   = 0x30210001,
+        // jamming/interference monitor enable (needed for MON-RF jammingState)
+        CFG_ITFM_ENABLE                 = 0x1041000D,
+        // UBX-SEC-SIG output on UART1 (jamming/spoofing flags on newer firmware)
+        MSGOUT_UBX_SEC_SIG_UART1        = 0x20910635,
 
         CFG_UART1_BAUDRATE              = 0x40520001,
         CFG_UART1_ENABLED               = 0x10520005,
@@ -395,7 +405,7 @@ private:
         uint8_t fix_type;
         uint8_t fix_status;
         uint8_t differential_status;
-        uint8_t res;
+        uint8_t flags2;                                 // bits 4:3 are spoofDetState
         uint32_t time_to_first_fix;
         uint32_t uptime;                                // milliseconds
     };
@@ -550,6 +560,46 @@ private:
         uint32_t postStatus;
         uint32_t reserved2;
     };
+    // UBX-MON-RF block (repeated nBlocks times after ubx_mon_rf header)
+    struct PACKED ubx_mon_rf_block {
+        uint8_t  blockId;        // 0
+        uint8_t  flags;          // 1 (jammingState in bits 1:0)
+        uint8_t  antStatus;      // 2
+        uint8_t  antPower;       // 3
+        uint32_t postStatus;     // 4..7
+        uint8_t  reserved1[4];   // 8..11
+        uint16_t noisePerMS;     // 12..13
+        uint16_t agcCnt;         // 14..15
+        uint8_t  cwSuppression;  // 16
+        int8_t   ofsI;           // 17
+        uint8_t  magI;           // 18
+        int8_t   ofsQ;           // 19
+        uint8_t  magQ;           // 20
+        uint8_t  rfBlockGnssBand;// 21
+        uint8_t  reserved2[2];   // 22..23
+    };
+    struct PACKED ubx_mon_rf {
+        uint8_t version;         // 0
+        uint8_t nBlocks;         // 1
+        uint8_t reserved0[2];    // 2..3
+        ubx_mon_rf_block blocks[2]; // provision for up to 2 RF blocks
+    };
+    // UBX-CFG-ITFM jamming/interference monitor configuration (u-blox 7/8)
+    struct PACKED ubx_cfg_itfm {
+        uint32_t config;         // bbThreshold[3:0] cwThreshold[8:4] algorithmBits[30:9] enable[31]
+        uint32_t config2;        // generalBits[11:0] antSetting[13:12] enable2[14]
+    };
+    // UBX-SEC-SIG signal security information (v1: 12 bytes, v2/v3: 4+4*n bytes)
+    struct PACKED ubx_sec_sig {
+        uint8_t version;
+        uint8_t sigSecFlags;     // v2+: jamDetEnabled[0] jammingState[2:1] spfDetEnabled[3] spoofingState[5:4]
+        uint8_t reserved0;
+        uint8_t jamNumCentFreqs; // v2+
+        uint8_t jamFlags;        // v1 only (offset 4): jamDetEnabled[0] jammingState[2:1]
+        uint8_t reserved1[3];
+        uint8_t spfFlags;        // v1 only (offset 8): spfDetEnabled[0] spoofingState[2:1]
+        uint8_t reserved2[3];
+    };
     struct PACKED ubx_mon_ver {
         char swVersion[30];
         char hwVersion[10];
@@ -651,6 +701,9 @@ private:
         ubx_mon_hw_68 mon_hw_68;
         ubx_mon_hw2 mon_hw2;
         ubx_mon_ver mon_ver;
+        ubx_mon_rf mon_rf;
+        ubx_cfg_itfm itfm;
+        ubx_sec_sig sec_sig;
         ubx_cfg_tp5 nav_tp5;
 #if UBLOX_GNSS_SETTINGS
         ubx_cfg_gnss gnss;
@@ -693,6 +746,7 @@ private:
         CLASS_MON = 0x0A,
         CLASS_RXM = 0x02,
         CLASS_TIM = 0x0d,
+        CLASS_SEC = 0x27,
         MSG_ACK_NACK = 0x00,
         MSG_ACK_ACK = 0x01,
         MSG_POSLLH = 0x2,
@@ -714,6 +768,8 @@ private:
         MSG_CFG_VALSET = 0x8A,
         MSG_CFG_VALGET = 0x8B,
         MSG_CFG_TMODE3 = 0x71,
+        MSG_CFG_ITFM = 0x39,
+        MSG_SEC_SIG = 0x09,
         MSG_MON_HW = 0x09,
         MSG_MON_HW2 = 0x0B,
         MSG_MON_VER = 0x04,
@@ -786,6 +842,9 @@ private:
         STEP_DOP,
         STEP_MON_HW,
         STEP_MON_HW2,
+        STEP_MON_RF,
+        STEP_ITFM, // enable jamming/interference monitor
+        STEP_SEC_SIG, // enable UBX-SEC-SIG output
         STEP_RAW,
         STEP_RAWX,
         STEP_RTK_MOVBASE, // setup moving baseline
@@ -866,6 +925,37 @@ private:
     void unexpected_message(void);
     void log_mon_hw(void);
     void log_mon_hw2(void);
+
+    // GNSS integrity support
+    void update_mon_rf(void);
+    void handle_cfg_itfm(void);
+    void handle_sec_sig(void);
+    // set once UBX-SEC-SIG has been received; it then owns the
+    // jamming/spoofing state (MON-RF jammingState is 0 on such firmware)
+    bool _have_sec_sig;
+    static uint8_t jamming_state_to_mavlink(uint8_t ubx_jamming_state);
+    static uint8_t spoofing_state_to_mavlink(uint8_t ubx_spoof_det_state);
+    // MON-RF is available on F9/M9 and newer generations
+    bool supports_mon_rf(void) const {
+        return _hardware_generation >= UBLOX_F9 &&
+               _hardware_generation != UBLOX_UNKNOWN_HARDWARE_GENERATION;
+    }
+    // NAV-STATUS spoofDetState is available on M8 (SPG 3.01+) and newer;
+    // older firmware reports 0 which maps to UNKNOWN
+    bool supports_spoof_detection(void) const {
+        return _hardware_generation >= UBLOX_M8 &&
+               _hardware_generation != UBLOX_UNKNOWN_HARDWARE_GENERATION;
+    }
+    // receivers configured through CFG-VALSET keys (CFG-ITFM-ENABLE)
+    bool supports_valset_config(void) const {
+        return _hardware_generation == UBLOX_F9 ||
+               _hardware_generation == UBLOX_M9 ||
+               _hardware_generation == UBLOX_M10;
+    }
+    // receivers with the legacy UBX-CFG-ITFM message
+    bool supports_legacy_itfm(void) const {
+        return _hardware_generation == UBLOX_7 || _hardware_generation == UBLOX_M8;
+    }
     void log_tim_tm2(void);
     void log_rxm_raw(const struct ubx_rxm_raw &raw);
     void log_rxm_rawx(const struct ubx_rxm_rawx &raw);
@@ -957,6 +1047,9 @@ private:
     // F9 debug message MSGOUT enable/disable on UART1
     static const config_list config_F9_debug_uart1[];
     static const config_list config_F9_debug_uart1_dis[];
+    // jamming/interference monitor enable via CFG-VALSET
+    static const config_list config_ITFM[];
+    static const config_list config_SEC_SIG[];
     bool in_safeboot_mode;
 };
 

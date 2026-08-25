@@ -287,7 +287,6 @@ const AP_GPS_UBLOX::config_list AP_GPS_UBLOX::config_F9_debug_uart1[] {
     { ConfigKey::MSGOUT_UBX_NAV_SAT_UART1,     1},
     { ConfigKey::MSGOUT_UBX_NAV_CLOCK_UART1,   1},
     { ConfigKey::MSGOUT_UBX_NAV_SIG_UART1,     1},
-    { ConfigKey::MSGOUT_UBX_MON_RF_UART1,      5},
     { ConfigKey::MSGOUT_UBX_MON_HW3_UART1,     5},
     { ConfigKey::MSGOUT_UBX_MON_COMMS_UART1,   5},
     { ConfigKey::MSGOUT_UBX_MON_SPAN_UART1,    5},
@@ -298,10 +297,19 @@ const AP_GPS_UBLOX::config_list AP_GPS_UBLOX::config_F9_debug_uart1_dis[] {
     { ConfigKey::MSGOUT_UBX_NAV_SAT_UART1,     0},
     { ConfigKey::MSGOUT_UBX_NAV_CLOCK_UART1,   0},
     { ConfigKey::MSGOUT_UBX_NAV_SIG_UART1,     0},
-    { ConfigKey::MSGOUT_UBX_MON_RF_UART1,      0},
     { ConfigKey::MSGOUT_UBX_MON_HW3_UART1,     0},
     { ConfigKey::MSGOUT_UBX_MON_COMMS_UART1,   0},
     { ConfigKey::MSGOUT_UBX_MON_SPAN_UART1,    0},
+};
+
+// jamming/interference monitor enable (needed for MON-RF jammingState)
+const AP_GPS_UBLOX::config_list AP_GPS_UBLOX::config_ITFM[] {
+    { ConfigKey::CFG_ITFM_ENABLE, 1 },
+};
+
+// UBX-SEC-SIG output: newer F9 firmware reports jamming here (MON-RF is 0)
+const AP_GPS_UBLOX::config_list AP_GPS_UBLOX::config_SEC_SIG[] {
+    { ConfigKey::MSGOUT_UBX_SEC_SIG_UART1, RATE_HW },
 };
 
 void
@@ -427,6 +435,44 @@ AP_GPS_UBLOX::_request_next_config(void)
     case STEP_MON_HW2:
         if(!_request_message_rate(CLASS_MON, MSG_MON_HW2)) {
             _next_message--;
+        }
+        break;
+    case STEP_MON_RF:
+        if (supports_mon_rf()) {
+            if(!_request_message_rate(CLASS_MON, MSG_MON_RF)) {
+                _next_message--;
+            }
+        } else {
+            _unconfigured_messages &= ~CONFIG_RATE_MON_RF;
+        }
+        break;
+    case STEP_ITFM:
+        // enable the jamming/interference monitor; without it the receiver
+        // reports MON-RF/MON-HW jammingState 0 ("unknown or feature disabled")
+        if (supports_valset_config()) {
+            if (!_configure_config_set(config_ITFM, ARRAY_SIZE(config_ITFM), CONFIG_ITFM,
+                                       UBX_VALSET_LAYER_RAM | UBX_VALSET_LAYER_BBR)) {
+                _next_message--;
+            }
+        } else if (supports_legacy_itfm()) {
+            // poll CFG-ITFM; the reply is handled by handle_cfg_itfm()
+            if (!_send_message(CLASS_CFG, MSG_CFG_ITFM, nullptr, 0)) {
+                _next_message--;
+            }
+        } else {
+            _unconfigured_messages &= ~CONFIG_ITFM;
+        }
+        break;
+    case STEP_SEC_SIG:
+        // UBX-SEC-SIG (F9 HPG 1.5x / L1L5, M10, X20) carries the jamming and
+        // spoofing flags; receivers without it NACK the key and the bit clears
+        if (supports_valset_config()) {
+            if (!_configure_config_set(config_SEC_SIG, ARRAY_SIZE(config_SEC_SIG), CONFIG_SEC_SIG,
+                                       UBX_VALSET_LAYER_RAM | UBX_VALSET_LAYER_BBR)) {
+                _next_message--;
+            }
+        } else {
+            _unconfigured_messages &= ~CONFIG_SEC_SIG;
         }
         break;
     case STEP_RAW:
@@ -568,7 +614,12 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
             config_msg_id = CONFIG_RATE_POSLLH;
             break;
         case MSG_STATUS:
-            desired_rate = havePvtMsg ? 0 : RATE_STATUS;
+            if (supports_spoof_detection()) {
+                // keep NAV-STATUS alive at a reduced rate for spoofDetState
+                desired_rate = havePvtMsg ? RATE_STATUS_INTEGRITY : RATE_STATUS;
+            } else {
+                desired_rate = havePvtMsg ? 0 : RATE_STATUS;
+            }
             config_msg_id = CONFIG_RATE_STATUS;
             break;
         case MSG_SOL:
@@ -604,6 +655,10 @@ AP_GPS_UBLOX::_verify_rate(uint8_t msg_class, uint8_t msg_id, uint8_t rate) {
         case MSG_MON_HW2:
             desired_rate = RATE_HW2;
             config_msg_id = CONFIG_RATE_MON_HW2;
+            break;
+        case MSG_MON_RF:
+            desired_rate = RATE_HW;
+            config_msg_id = CONFIG_RATE_MON_RF;
             break;
         default:
             return;
@@ -1132,6 +1187,9 @@ AP_GPS_UBLOX::_parse_gps(void)
                 case MSG_CFG_TMODE3:
                     _unconfigured_messages &= ~CONFIG_TMODE_MODE;
                     break;
+                case MSG_CFG_ITFM:
+                    _unconfigured_messages &= ~CONFIG_ITFM;
+                    break;
                 }
                 break;
             case CLASS_MON:
@@ -1142,6 +1200,9 @@ AP_GPS_UBLOX::_parse_gps(void)
                 case MSG_MON_HW2:
                     _unconfigured_messages &= ~CONFIG_RATE_MON_HW2;
                     break;
+                case MSG_MON_RF:
+                    _unconfigured_messages &= ~CONFIG_RATE_MON_RF;
+                    break;
                 }
             }
         }
@@ -1149,6 +1210,10 @@ AP_GPS_UBLOX::_parse_gps(void)
             switch(_buffer.nack.clsID) {
             case CLASS_CFG:
                 switch(_buffer.nack.msgID) {
+                case MSG_CFG_ITFM:
+                    // no legacy CFG-ITFM on this receiver, give up
+                    _unconfigured_messages &= ~CONFIG_ITFM;
+                    break;
                 case MSG_CFG_VALGET:
                     if (active_config.list != nullptr) {
                         /*
@@ -1382,6 +1447,9 @@ AP_GPS_UBLOX::_parse_gps(void)
             }
             return false;
         }
+        case MSG_CFG_ITFM:
+            handle_cfg_itfm();
+            return false;
         case MSG_CFG_VALGET: {
             uint8_t cfg_len = _payload_length - sizeof(ubx_cfg_valget);
             const uint8_t *cfg_data = (const uint8_t *)(&_buffer) + sizeof(ubx_cfg_valget);
@@ -1456,6 +1524,13 @@ AP_GPS_UBLOX::_parse_gps(void)
         switch(_msg_id) {
         case MSG_MON_HW:
             if (_payload_length == 60 || _payload_length == 68) {
+                if (!supports_mon_rf() && !_have_sec_sig) {
+                    // MON-HW flags bits 3:2 are jammingState on u-blox 7/8
+                    // (always 0 on older generations, mapping to UNKNOWN)
+                    const uint8_t flags = (_payload_length == 68) ?
+                        _buffer.mon_hw_68.flags : _buffer.mon_hw_60.flags;
+                    state.integrity.jamming_state = jamming_state_to_mavlink((flags >> 2) & 0x03U);
+                }
                 log_mon_hw();
             }
             break;
@@ -1468,6 +1543,10 @@ AP_GPS_UBLOX::_parse_gps(void)
         // them but must consume them so the unknown-message default path
         // does not auto-disable them.
         case MSG_MON_RF:
+            if (_payload_length >= 4 && ((_payload_length - 4U) % sizeof(ubx_mon_rf_block)) == 0) {
+                update_mon_rf();
+            }
+            break;
         case MSG_MON_HW3:
         case MSG_MON_COMMS:
         case MSG_MON_SPAN:
@@ -1492,6 +1571,9 @@ AP_GPS_UBLOX::_parse_gps(void)
                         _unconfigured_messages |= CONFIG_TMODE_MODE;
                         // F9 supports MSGOUT MSGOUT_UBX_* keys for debug streams
                         _unconfigured_messages |= CONFIG_F9_DEBUG;
+                        // arm MON-RF, NAV-STATUS keep-alive (spoofDetState) and the
+                        // interference monitor now the generation is known
+                        _unconfigured_messages |= CONFIG_RATE_MON_RF | CONFIG_RATE_STATUS | CONFIG_ITFM | CONFIG_SEC_SIG;
                     }
                     _hardware_generation = UBLOX_F9;
                 }
@@ -1511,13 +1593,14 @@ AP_GPS_UBLOX::_parse_gps(void)
                 if (strncmp(_version.swVersion, "EXT CORE 4", 10) == 0) {
                     // a M9
                     _hardware_generation = UBLOX_M9;
+                    _unconfigured_messages |= CONFIG_RATE_MON_RF | CONFIG_RATE_STATUS | CONFIG_ITFM | CONFIG_SEC_SIG;
                 }
                 check_L1L5 = true;
             }
             // check for M10
             if (strncmp(_version.hwVersion, "000A0000", 8) == 0) {
                 _hardware_generation = UBLOX_M10;
-                _unconfigured_messages |= CONFIG_M10;
+                _unconfigured_messages |= CONFIG_M10 | CONFIG_RATE_MON_RF | CONFIG_RATE_STATUS | CONFIG_ITFM | CONFIG_SEC_SIG;
                 // M10 does not support CONFIG_GNSS
                 _unconfigured_messages &= ~CONFIG_GNSS;
                 check_L1L5 = true;
@@ -1533,6 +1616,15 @@ AP_GPS_UBLOX::_parse_gps(void)
             break;
         }
         default:
+            unexpected_message();
+        }
+        return false;
+    }
+
+    if (_class == CLASS_SEC) {
+        if (_msg_id == MSG_SEC_SIG) {
+            handle_sec_sig();
+        } else {
             unexpected_message();
         }
         return false;
@@ -1631,8 +1723,17 @@ AP_GPS_UBLOX::_parse_gps(void)
               _buffer.status.fix_status,
               _buffer.status.fix_type);
         _check_new_itow(_buffer.status.itow);
+        if (supports_spoof_detection() && !_have_sec_sig) {
+            state.integrity.spoofing_state = spoofing_state_to_mavlink((_buffer.status.flags2 >> 3) & 0x03U);
+        }
         if (havePvtMsg) {
-            _unconfigured_messages |= CONFIG_RATE_STATUS;
+            if (!supports_spoof_detection()) {
+                // when we have PVT we don't need status; re-arm so the
+                // poll loop sets its rate to zero
+                _unconfigured_messages |= CONFIG_RATE_STATUS;
+            }
+            // spoof-detection capable receivers keep NAV-STATUS at
+            // RATE_STATUS_INTEGRITY, managed by _verify_rate()
             break;
         }
         if (_buffer.status.fix_status & NAV_STATUS_FIX_VALID) {
@@ -1780,7 +1881,13 @@ AP_GPS_UBLOX::_parse_gps(void)
             gps._gps_raw_cb(buf, _payload_length + 8);
         }
 
-        havePvtMsg = true;
+        if (!havePvtMsg) {
+            havePvtMsg = true;
+            if (supports_spoof_detection()) {
+                // reduce NAV-STATUS to the integrity keep-alive rate
+                _unconfigured_messages |= CONFIG_RATE_STATUS;
+            }
+        }
         // position
         _check_new_itow(_buffer.pvt.itow);
         _last_pvt_itow = _buffer.pvt.itow;
@@ -1908,8 +2015,13 @@ AP_GPS_UBLOX::_parse_gps(void)
                 // only 7 and newer support CONFIG_GNSS
                 _unconfigured_messages &= ~CONFIG_GNSS;
                 break;
-            case UBLOX_7:
             case UBLOX_M8:
+                // (re)arm NAV-STATUS now we know spoofDetState is available
+                _unconfigured_messages |= CONFIG_RATE_STATUS;
+                FALLTHROUGH;
+            case UBLOX_7:
+                // enable the jamming/interference monitor (legacy CFG-ITFM)
+                _unconfigured_messages |= CONFIG_ITFM;
 #if UBLOX_SPEED_CHANGE
                 port->begin(4000000U);
                 Debug("Changed speed to 4Mhz for SPI-driven UBlox\n");
@@ -2301,7 +2413,10 @@ static const char *reasons[] = {"navigation rate",
                                 "TIM TM2",
                                 "M10",
                                 "L5 Enable Disable",
-                                "F9 debug messages"};
+                                "F9 debug messages",
+                                "RF monitor rate",
+                                "interference monitor",
+                                "SEC-SIG rate"};
 
 static_assert((1 << ARRAY_SIZE(reasons)) == CONFIG_LAST, "UBLOX: Missing configuration description");
 
@@ -2425,6 +2540,105 @@ bool AP_GPS_UBLOX::is_healthy(void) const
 }
 
 // return true if GPS is capable of F9 config
+// map u-blox MON-RF/MON-HW jammingState (0..3) to GPS_JAMMING_STATE
+uint8_t AP_GPS_UBLOX::jamming_state_to_mavlink(uint8_t ubx_jamming_state)
+{
+    using GI = AP_GPS::GPS_State::GNSSIntegrity;
+    switch (ubx_jamming_state) {
+    case 1:
+        return GI::JAMMING_NOT_JAMMED;
+    case 2:
+        // interference visible but fix OK
+        return GI::JAMMING_MITIGATED;
+    case 3:
+        // interference visible and no fix
+        return GI::JAMMING_DETECTED;
+    default:
+        // 0 = unknown or feature (interference monitor) disabled
+        return GI::JAMMING_UNKNOWN;
+    }
+}
+
+// map u-blox NAV-STATUS spoofDetState (0..3) to GPS_SPOOFING_STATE
+uint8_t AP_GPS_UBLOX::spoofing_state_to_mavlink(uint8_t ubx_spoof_det_state)
+{
+    using GI = AP_GPS::GPS_State::GNSSIntegrity;
+    switch (ubx_spoof_det_state) {
+    case 1:
+        return GI::SPOOFING_NOT_SPOOFED;
+    case 2:     // spoofing indicated
+    case 3:     // multiple spoofing indications
+        return GI::SPOOFING_DETECTED;
+    default:
+        return GI::SPOOFING_UNKNOWN;
+    }
+}
+
+// handle a MON-RF message: update the jamming state
+void AP_GPS_UBLOX::update_mon_rf(void)
+{
+    if (_have_sec_sig) {
+        // SEC-SIG owns the jamming state on this firmware
+        return;
+    }
+    const ubx_mon_rf &rf = _buffer.mon_rf;
+    if (rf.version != 0 || rf.nBlocks == 0) {
+        return;
+    }
+    // take the worst jamming state across the RF blocks (e.g. L1 and L2/L5);
+    // worst-of on the raw values is valid as the mapping is monotonic
+    uint8_t worst = 0;
+    const uint8_t nblocks = MIN(rf.nBlocks, ARRAY_SIZE(rf.blocks));
+    for (uint8_t i = 0; i < nblocks; i++) {
+        worst = MAX(worst, uint8_t(rf.blocks[i].flags & 0x03U));
+    }
+    state.integrity.jamming_state = jamming_state_to_mavlink(worst);
+}
+
+// handle the reply to a CFG-ITFM poll (u-blox 7/8): enable the
+// jamming/interference monitor if it is off. The ACK of the set
+// message clears CONFIG_ITFM
+void AP_GPS_UBLOX::handle_cfg_itfm(void)
+{
+    if (_payload_length != sizeof(ubx_cfg_itfm)) {
+        return;
+    }
+    ubx_cfg_itfm itfm = _buffer.itfm;
+    const uint32_t ITFM_ENABLE = 1U << 31;
+    if (itfm.config & ITFM_ENABLE) {
+        _unconfigured_messages &= ~CONFIG_ITFM;
+        return;
+    }
+    itfm.config |= ITFM_ENABLE;
+    _send_message(CLASS_CFG, MSG_CFG_ITFM, &itfm, sizeof(itfm));
+    _cfg_needs_save = true;
+}
+
+// handle UBX-SEC-SIG: on firmware that has it MON-RF jammingState is
+// always 0, so this message owns the jamming (and spoofing) state
+void AP_GPS_UBLOX::handle_sec_sig(void)
+{
+    const ubx_sec_sig &sig = _buffer.sec_sig;
+    uint8_t jam_enabled, jam_state, spf_enabled, spf_state;
+    if (sig.version == 1 && _payload_length >= 12) {
+        jam_enabled = sig.jamFlags & 1U;
+        jam_state   = (sig.jamFlags >> 1) & 3U;
+        spf_enabled = sig.spfFlags & 1U;
+        spf_state   = (sig.spfFlags >> 1) & 3U;
+    } else if (sig.version >= 2 && _payload_length >= 4) {
+        jam_enabled = sig.sigSecFlags & 1U;
+        jam_state   = (sig.sigSecFlags >> 1) & 3U;
+        spf_enabled = (sig.sigSecFlags >> 3) & 1U;
+        spf_state   = (sig.sigSecFlags >> 4) & 3U;
+    } else {
+        return;
+    }
+    _have_sec_sig = true;
+    // 0 = unknown or detection disabled, 1 = none, 2 = warning, 3 = critical
+    state.integrity.jamming_state  = jamming_state_to_mavlink(jam_enabled ? jam_state : 0);
+    state.integrity.spoofing_state = spoofing_state_to_mavlink(spf_enabled ? spf_state : 0);
+}
+
 bool AP_GPS_UBLOX::supports_F9_config(void) const
 {
     return _hardware_generation == UBLOX_F9 || _hardware_generation == UBLOX_M10;
