@@ -1,0 +1,38 @@
+#
+# GNSS integrity state of the receiver attached to this node: interference
+# (jamming), spoofing and signal authentication.
+#
+# Field semantics and enum values deliberately mirror the MAVLink
+# GNSS_INTEGRITY message (GPS_SYSTEM_ERROR_FLAGS, GPS_JAMMING_STATE,
+# GPS_SPOOFING_STATE, GPS_AUTHENTICATION_STATE) so that an autopilot can
+# forward the state without translation.
+#
+# Zero means "unknown" for every field, so a subscriber that stops
+# receiving this message can safely reset its copy to all-zero.
+#
+# Published at 1Hz, and immediately when any field changes.
+#
+
+# Bitmask of GPS_SYSTEM_ERROR_FLAGS. 0 = no known errors.
+uint32 system_errors
+
+# GPS_JAMMING_STATE
+uint8 JAMMING_STATE_UNKNOWN    = 0
+uint8 JAMMING_STATE_NOT_JAMMED = 1
+uint8 JAMMING_STATE_MITIGATED  = 2
+uint8 JAMMING_STATE_DETECTED   = 3
+uint8 jamming_state
+
+# GPS_SPOOFING_STATE
+uint8 SPOOFING_STATE_UNKNOWN     = 0
+uint8 SPOOFING_STATE_NOT_SPOOFED = 1
+uint8 SPOOFING_STATE_MITIGATED   = 2
+uint8 SPOOFING_STATE_DETECTED    = 3
+uint8 spoofing_state
+
+# GPS_AUTHENTICATION_STATE
+uint8 AUTHENTICATION_STATE_UNKNOWN      = 0
+uint8 AUTHENTICATION_STATE_INITIALIZING = 1
+uint8 AUTHENTICATION_STATE_ERROR        = 2
+uint8 AUTHENTICATION_STATE_OK           = 3
+uint8 authentication_state
