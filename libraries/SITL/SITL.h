@@ -173,6 +173,7 @@ public:
 
     enum class GPSOptions : uint32_t {
         UBX_IS_F9P = 1U << 0,
+        UBX_SEC_SIG = 1U << 1, // newer F9 firmware: jamming/spoofing via UBX-SEC-SIG, MON-RF jammingState 0
     };
 
     struct sitl_fdm state;
