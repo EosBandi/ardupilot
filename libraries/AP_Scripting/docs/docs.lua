@@ -3289,6 +3289,17 @@ function gps:time_epoch_usec(instance) end
 ---@return uint32_t_ud|nil -- time in milliseconds of last yaw reading
 function gps:gps_yaw_deg(instance) end
 
+-- get the GNSS integrity (jamming/spoofing) state of a receiver. Values
+-- follow the MAVLink GNSS_INTEGRITY message: the states are 0 UNKNOWN
+-- (no data or detector disabled), 1 OK, 2 MITIGATED, 3 DETECTED
+-- (authentication: 0 UNKNOWN, 1 INITIALIZING, 2 ERROR, 3 OK, 4 DISABLED)
+---@param instance integer -- instance number
+---@return integer|nil -- jamming state (GPS_JAMMING_STATE)
+---@return integer|nil -- spoofing state (GPS_SPOOFING_STATE)
+---@return integer|nil -- authentication state (GPS_AUTHENTICATION_STATE)
+---@return uint32_t_ud|nil -- system error flags (GPS_SYSTEM_ERROR_FLAGS bitmask)
+function gps:gnss_integrity(instance) end
+
 --  Returns nil or the instance number of the first GPS that has not been fully configured. If all GPS’s have been configured this returns nil.
 ---@return integer|nil
 function gps:first_unconfigured_gps() end
