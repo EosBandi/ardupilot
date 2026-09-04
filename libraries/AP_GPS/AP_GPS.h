@@ -513,6 +513,20 @@ public:
         return state[instance].integrity;
     }
 
+    // GNSS integrity state accessor for scripting: the GNSS_INTEGRITY
+    // enum/bitmask values for the given instance (0 == UNKNOWN)
+    bool gnss_integrity(uint8_t instance, uint8_t &jamming_state, uint8_t &spoofing_state, uint8_t &authentication_state, uint32_t &system_errors) const {
+        if (instance >= GPS_MAX_INSTANCES) {
+            return false;
+        }
+        const auto &integ = state[instance].integrity;
+        jamming_state        = integ.jamming_state;
+        spoofing_state       = integ.spoofing_state;
+        authentication_state = integ.authentication_state;
+        system_errors        = integ.system_errors;
+        return true;
+    }
+
     //MAVLink Status Sending
     void send_mavlink_gps_raw(mavlink_channel_t chan);
     void send_mavlink_gps2_raw(mavlink_channel_t chan);
